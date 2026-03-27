@@ -108,7 +108,16 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             self.statusMessage = "Errore Audio"; return
         }
         
+        // Preparo l'audio engine prima di chiedere il formato (risolve crash in certi simulatori)
+        audioEngine.prepare()
+        
         let recordingFormat = audioEngine.inputNode.outputFormat(forBus: 0)
+        
+        // Controllo di sicurezza: se il formato è invalido (può succedere su simulatore) evito il crash
+        guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
+            self.statusMessage = "Errore Hardware"; return
+        }
+        
         streamAnalyzer = SNAudioStreamAnalyzer(format: recordingFormat)
         
         do {
@@ -122,7 +131,6 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             self?.analysisQueue.async { self?.streamAnalyzer?.analyze(buffer, atAudioFramePosition: time.sampleTime) }
         }
         
-        audioEngine.prepare()
         do {
             try audioEngine.start()
             self.isListening = true
