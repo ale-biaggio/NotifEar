@@ -2,7 +2,7 @@
 //  SoundAnalyzerViewModel.swift
 //  NotifEar Watch App
 //
-//  Created by Alessandro Biaggioli on 26/03/2026.
+//  Created by NotifEar Team on 26/03/2026.
 //
 
 import Foundation
@@ -35,7 +35,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     
     private let audioEngine = AVAudioEngine()
     private var streamAnalyzer: SNAudioStreamAnalyzer?
-    private let analysisQueue = DispatchQueue(label: "com.alessandro.NotifEar.AnalysisQueue")
+    private let analysisQueue = DispatchQueue(label: "com.notifear.AnalysisQueue")
     
     private var extendedSession: WKExtendedRuntimeSession?
     private var countdownTimer: Timer?

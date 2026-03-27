@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  NotifEar Watch App
 //
-//  Created by Alessandro Biaggioli on 26/03/2026.
+//  Created by NotifEar Team on 26/03/2026.
 //
 
 import SwiftUI
