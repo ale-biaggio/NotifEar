@@ -11,8 +11,13 @@ DerivedData/
 *.xcscmblueprint
 
 # Agent / AI development files
+GEMINI.md
 .gemini/
 .agents/
 .agent/
 _agents/
 _agent/
+
+# Script di utilità (solo sviluppo locale)
+check_labels.swift
+get_all_labels.swift
