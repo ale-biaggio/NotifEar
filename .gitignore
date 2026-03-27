@@ -14,7 +14,6 @@ xcuserstate
 *.xcscmblueprint
 
 # Agent / AI development files
-GEMINI.md
 .gemini/
 .agents/
 .agent/
