@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+build/
+DerivedData/
+*.xcuserdata/
+*.xcworkspace/xcuserstate
+*.xcscmblueprint
+
+# Agent / AI development files
+.gemini/
+.agents/
+.agent/
+_agents/
+_agent/

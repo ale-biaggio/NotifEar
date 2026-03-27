@@ -9,9 +9,15 @@ import SwiftUI
 
 @main
 struct NotifEar_Watch_AppApp: App {
+    @StateObject private var viewModel = SoundAnalyzerViewModel()
+    
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            TabView {
+                ContentView(viewModel: viewModel)
+                SessionView(viewModel: viewModel)
+            }
+            .tabViewStyle(.page)
         }
     }
 }
