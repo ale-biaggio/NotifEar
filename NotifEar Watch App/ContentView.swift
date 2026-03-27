@@ -87,15 +87,20 @@ struct ContentView: View {
                 Spacer()
             }
             .padding(.horizontal)
-            
-            // Double Tap: dismiss alert o restart sessione
-            Button(action: { viewModel.handlePrimaryAction() }) {}
-                .handGestureShortcut(.primaryAction)
-                .hidden()
         }
         // Tap per dismiss dell'alert
         .onTapGesture {
             viewModel.dismissAlert()
+        }
+        // Double Tap (pizzico pollice-indice): dismiss alert o restart sessione
+        .overlay {
+            Button(action: { viewModel.handlePrimaryAction() }) {
+                Color.clear
+                    .frame(width: 0, height: 0)
+            }
+            .buttonStyle(.plain)
+            .allowsHitTesting(false)
+            .handGestureShortcut(.primaryAction)
         }
         .onAppear {
             viewModel.startListening()

@@ -11,6 +11,7 @@ import Combine
 import SoundAnalysis
 import AVFoundation
 import WatchKit
+import UserNotifications
 
 struct SoundInfo: Equatable {
     let label: String
@@ -39,33 +40,34 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     
     private var extendedSession: WKExtendedRuntimeSession?
     private var countdownTimer: Timer?
+    private let notificationCenter = UNUserNotificationCenter.current()
     
     // Mappa con le chiavi esatte del modello Apple e icone SF Symbols
     private let soundMap: [String: SoundInfo] = [
         // EMERGENZE
-        "ambulance_siren": SoundInfo(label: "AMBULANZA", iconName: "ambulance.fill", isSystemIcon: true, color: .red, category: .emergency),
-        "siren": SoundInfo(label: "SIRENA", iconName: "light.beacon.max.fill", isSystemIcon: true, color: .red, category: .emergency),
+        "ambulance_siren": SoundInfo(label: "AMBULANZA", iconName: "🚑", isSystemIcon: false, color: .red, category: .emergency),
+        "siren": SoundInfo(label: "SIRENA", iconName: "🚨", isSystemIcon: false, color: .red, category: .emergency),
         "fire_alarm": SoundInfo(label: "ALLARME INCENDIO", iconName: "flame.fill", isSystemIcon: true, color: .red, category: .emergency),
-        "smoke_detector": SoundInfo(label: "ALLARME FUMO", iconName: "smoke.fill", isSystemIcon: true, color: .red, category: .emergency),
+        "smoke_detector": SoundInfo(label: "ALLARME FUMO", iconName: "🔥", isSystemIcon: false, color: .red, category: .emergency),
         
         // PERICOLI / GRIDA
         "scream": SoundInfo(label: "URLO RILEVATO", iconName: "exclamationmark.triangle.fill", isSystemIcon: true, color: .orange, category: .danger),
         "shout": SoundInfo(label: "GRIDO RILEVATO", iconName: "speaker.wave.3.fill", isSystemIcon: true, color: .orange, category: .danger),
-        "car_horn": SoundInfo(label: "CLACSON", iconName: "car.fill", isSystemIcon: true, color: .orange, category: .danger),
+        "car_horn": SoundInfo(label: "CLACSON", iconName: "🚗", isSystemIcon: false, color: .orange, category: .danger),
         
         // CASA
         "door_bell": SoundInfo(label: "CAMPANELLO", iconName: "bell.fill", isSystemIcon: true, color: .blue, category: .home),
         "doorbell": SoundInfo(label: "CAMPANELLO", iconName: "bell.fill", isSystemIcon: true, color: .blue, category: .home),
-        "knock": SoundInfo(label: "BUSSANO", iconName: "hand.raised.fill", isSystemIcon: true, color: .blue, category: .home),
+        "knock": SoundInfo(label: "BUSSANO", iconName: "🚪", isSystemIcon: false, color: .blue, category: .home),
         "telephone_bell": SoundInfo(label: "TELEFONO", iconName: "phone.fill", isSystemIcon: true, color: .green, category: .home),
         "ringtone": SoundInfo(label: "TELEFONO", iconName: "phone.fill", isSystemIcon: true, color: .green, category: .home),
         
         // ATTENZIONE
-        "baby_crying": SoundInfo(label: "PIANTO NEONATO", iconName: "figure.baby", isSystemIcon: true, color: .yellow, category: .attention),
-        "baby_cry": SoundInfo(label: "PIANTO NEONATO", iconName: "figure.baby", isSystemIcon: true, color: .yellow, category: .attention),
-        "crying": SoundInfo(label: "PIANTO", iconName: "face.viewfinder", isSystemIcon: true, color: .yellow, category: .attention),
-        "dog": SoundInfo(label: "CANE", iconName: "pawprint.fill", isSystemIcon: true, color: .orange, category: .attention),
-        "bark": SoundInfo(label: "ABBAIO", iconName: "pawprint.fill", isSystemIcon: true, color: .orange, category: .attention)
+        "baby_crying": SoundInfo(label: "PIANTO NEONATO", iconName: "👶", isSystemIcon: false, color: .yellow, category: .attention),
+        "baby_cry": SoundInfo(label: "PIANTO NEONATO", iconName: "👶", isSystemIcon: false, color: .yellow, category: .attention),
+        "crying": SoundInfo(label: "PIANTO", iconName: "😢", isSystemIcon: false, color: .yellow, category: .attention),
+        "dog": SoundInfo(label: "CANE", iconName: "🐕", isSystemIcon: false, color: .orange, category: .attention),
+        "bark": SoundInfo(label: "ABBAIO", iconName: "🐕", isSystemIcon: false, color: .orange, category: .attention)
     ]
     
     // MARK: - Formatted time
@@ -89,8 +91,9 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
         AVAudioApplication.requestRecordPermission { [weak self] granted in
             DispatchQueue.main.async {
                 if granted {
-                    self?.setupAudioAndStart()
+                    self?.requestNotificationPermission()
                     self?.startExtendedSession()
+                    self?.setupAudioAndStart()
                 } else {
                     self?.statusMessage = "Permesso negato"
                 }
@@ -104,11 +107,17 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
         do {
             try audioSession.setCategory(.record, mode: .measurement, options: [])
             try audioSession.setActive(true)
+            // Piccolo delay per permettere all'hardware di stabilizzarsi
+            Thread.sleep(forTimeInterval: 0.2)
         } catch {
             self.statusMessage = "Errore Audio"; return
         }
         
-        // Preparo l'audio engine prima di chiedere il formato (risolve crash in certi simulatori)
+        // Reset dell'engine per evitare stati sporchi
+        audioEngine.stop()
+        audioEngine.reset()
+        
+        // Preparo l'audio engine prima di chiedere il formato (risolve crash in certi simulatori e device)
         audioEngine.prepare()
         
         let recordingFormat = audioEngine.inputNode.outputFormat(forBus: 0)
@@ -150,7 +159,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     
     func restartSession() {
         stopListening()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.startListening()
         }
     }
@@ -172,10 +181,41 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
         }
     }
     
+    // MARK: - Notifications
+    
+    private func requestNotificationPermission() {
+        notificationCenter.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error = error {
+                print("❌ Errore permessi notifiche: \(error)")
+            }
+        }
+    }
+    
+    private func sendLocalNotification(for info: SoundInfo) {
+        // Inviamo la notifica solo se l'app NON è attiva in primo piano.
+        // Se è attiva, l'utente vede già l'alert grafico della UI.
+        guard WKApplication.shared().applicationState != .active else { return }
+        
+        let content = UNMutableNotificationContent()
+        content.title = info.label
+        content.body = "NotifEar ha rilevato il suono di un \(info.label.lowercased())!"
+        content.sound = .default
+        
+        // Identificatore unico per evitare duplicati troppi ravvicinati dello stesso suono
+        let request = UNNotificationRequest(
+            identifier: "NotifEar_\(info.label)",
+            content: content,
+            trigger: nil // Invio immediato
+        )
+        
+        notificationCenter.add(request)
+    }
+    
     // MARK: - Extended Runtime Session
     
     private func startExtendedSession() {
         extendedSession?.invalidate()
+        extendedSession = nil
         
         let session = WKExtendedRuntimeSession()
         session.delegate = self
@@ -268,6 +308,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
                     self.detectedSound = info
                     self.statusMessage = info.label
                     self.playHaptic(for: info.category)
+                    self.sendLocalNotification(for: info)
                     
                     DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
                         if self.isListening && self.detectedSound == info {
@@ -298,10 +339,31 @@ extension SoundAnalyzerViewModel: WKExtendedRuntimeSessionDelegate {
     }
     
     func extendedRuntimeSession(_ extendedRuntimeSession: WKExtendedRuntimeSession, didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason, error: (any Error)?) {
-        print("❌ Extended session invalidata: \(reason)")
+        print("❌ Extended session invalidata: \(reason) (rawValue: \(reason.rawValue)) - Error: \(String(describing: error))")
+        
         DispatchQueue.main.async {
-            if self.isListening {
-                self.onSessionExpired()
+            switch reason {
+            case .expired, .suppressedBySystem:
+                // La sessione è scaduta naturalmente o il sistema l'ha soppressa → ferma tutto
+                if self.isListening {
+                    self.onSessionExpired()
+                }
+            case .error:
+                // Errore esterno (es. debugger collegato, conflitto sessioni).
+                // L'audio continua a funzionare in foreground, ma il background non è garantito.
+                // Non fermiamo l'ascolto, proviamo a ricreare la sessione dopo un delay.
+                print("⚠️ Sessione persa ma audio in foreground attivo. Retry tra 5s...")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                    if self.isListening && self.extendedSession == nil {
+                        print("🔄 Tentativo di riavvio sessione estesa...")
+                        let newSession = WKExtendedRuntimeSession()
+                        newSession.delegate = self
+                        newSession.start()
+                        self.extendedSession = newSession
+                    }
+                }
+            @unknown default:
+                print("⚠️ Motivo invalidazione sconosciuto: \(reason.rawValue)")
             }
         }
     }
