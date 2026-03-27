@@ -6,8 +6,11 @@
 # Xcode
 build/
 DerivedData/
+xcuserdata/
 *.xcuserdata/
-*.xcworkspace/xcuserstate
+*.xcworkspace/
+*.xcshareddata/
+xcuserstate
 *.xcscmblueprint
 
 # Agent / AI development files
