@@ -173,10 +173,10 @@ git update-index --assume-unchanged NotifEar.xcodeproj/project.pbxproj
 
 ## 📋 Requisiti
 
-- **Apple Watch**: watchOS 10.1+ (Series 4+, Series 9+ per il Double Tap)
-- **iPhone companion**: iOS 16+ (richiesto da Create ML Components per l'addestramento on-device)
+- **Apple Watch**: watchOS **26.4+** (deployment target del progetto; Double Tap su Series 9 / Ultra 2 e successivi)
+- **iPhone companion**: iOS **18.0+** (deployment target del progetto; l'addestramento on-device usa Create ML Components, introdotto in iOS 16)
 - **iPhone e Watch abbinati** per inviare i suoni personalizzati
-- **Xcode 15+**
+- **Xcode 26+** (SDK iOS 18 / watchOS 26)
 
 ---
 
