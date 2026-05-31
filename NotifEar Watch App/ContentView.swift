@@ -9,7 +9,17 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var viewModel: SoundAnalyzerViewModel
-    
+    @ObservedObject var tracker: TrackingService
+
+    /// Riceve i modelli di suoni personalizzati dall'iPhone.
+    @ObservedObject private var modelReceiver = WatchModelReceiver.shared
+
+    /// Suono target selezionato dal tap sul tile. Quando non-nil presenta lo sheet TrackingView.
+    @State private var trackingTarget: SoundInfo?
+
+    /// Testo del banner transitorio (es. "Nuovo suono ricevuto").
+    @State private var bannerText: String?
+
     var body: some View {
         ZStack {
             // Sfondo dinamico con gradiente
@@ -28,7 +38,7 @@ struct ContentView: View {
                 Spacer()
                 
                 if let detected = viewModel.detectedSound {
-                    // Suono rilevato
+                    // Suono rilevato — tappabile per entrare in modalità Tracking su questa classe.
                     VStack(spacing: 8) {
                         if detected.isSystemIcon {
                             Image(systemName: detected.iconName)
@@ -38,14 +48,16 @@ struct ContentView: View {
                             Text(detected.iconName)
                                 .font(.system(size: 70))
                         }
-                        
+
                         Text(detected.label)
                             .font(.system(size: 16, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
                     }
                     .transition(.asymmetric(insertion: .scale.combined(with: .opacity), removal: .opacity))
                     .id(detected.label)
-                    
+                    .contentShape(Rectangle())
+                    .onTapGesture { trackingTarget = detected }
+
                 } else if viewModel.sessionExpired {
                     // Sessione scaduta
                     VStack(spacing: 8) {
@@ -105,9 +117,40 @@ struct ContentView: View {
         .onAppear {
             viewModel.startListening()
         }
+        .sheet(item: $trackingTarget) { target in
+            TrackingView(target: target, tracker: tracker, viewModel: viewModel)
+        }
+        // Banner transitorio quando arriva un nuovo modello dall'iPhone.
+        .overlay(alignment: .top) {
+            if let bannerText {
+                Text(bannerText)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.purple.opacity(0.9), in: Capsule())
+                    .padding(.top, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .onChange(of: modelReceiver.lastInstall) { _, _ in
+            showBanner("Nuovo suono ricevuto ✓")
+        }
+        .onChange(of: modelReceiver.lastErrorMessage) { _, newValue in
+            if newValue != nil { showBanner("Errore ricezione suono") }
+        }
+    }
+
+    /// Mostra un banner per qualche secondo, poi lo nasconde.
+    private func showBanner(_ text: String) {
+        withAnimation { bannerText = text }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            withAnimation { if bannerText == text { bannerText = nil } }
+        }
     }
 }
 
 #Preview {
-    ContentView(viewModel: SoundAnalyzerViewModel())
+    let vm = SoundAnalyzerViewModel()
+    return ContentView(viewModel: vm, tracker: TrackingService(viewModel: vm))
 }
