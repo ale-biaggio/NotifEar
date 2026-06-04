@@ -28,6 +28,9 @@ final class WatchModelReceiver: NSObject, ObservableObject {
     /// Invocato (su main thread) quando un nuovo modello è stato installato.
     var onModelInstalled: (() -> Void)?
 
+    /// Invocato (su main thread) quando l'iPhone segnala che il sonar è terminato.
+    var onSonarEnded: (() -> Void)?
+
     private override init() {
         super.init()
         guard WCSession.isSupported() else { return }
@@ -53,12 +56,62 @@ final class WatchModelReceiver: NSObject, ObservableObject {
             "ts": Date().timeIntervalSince1970
         ])
     }
+
+    /// Chiede all'iPhone di attivare la modalità Sonar su un suono già riconosciuto qui.
+    /// Manda il "bersaglio" (etichetta, icona, categoria e le chiavi di gating: identifier
+    /// di sistema OPPURE `customLabel`); l'iPhone ne fa una notifica locale che, al tap,
+    /// apre la schermata Sonar pre-armata.
+    ///
+    /// Se l'iPhone è raggiungibile usa `sendMessage` (lo sveglia in background subito);
+    /// altrimenti, o in caso d'errore, ripiega su `transferUserInfo` (consegna in coda).
+    ///
+    /// NOTA: le chiavi del payload e il valore "sonarHandoff" devono restare allineati a
+    /// `SonarTarget` lato iPhone (NON condividono codice tra i due target).
+    func requestSonarOnPhone(label: String, category: String, iconName: String,
+                             isSystemIcon: Bool, identifiers: [String], customLabel: String?) {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+
+        var payload: [String: Any] = [
+            "kind": "sonarHandoff",
+            "label": label,
+            "category": category,
+            "iconName": iconName,
+            "isSystemIcon": isSystemIcon,
+            "identifiers": identifiers
+        ]
+        if let customLabel { payload["customLabel"] = customLabel }
+
+        if session.isReachable {
+            session.sendMessage(payload, replyHandler: nil, errorHandler: { _ in
+                // Il messaggio immediato è fallito: ripieghiamo sulla consegna in coda.
+                session.transferUserInfo(payload)
+            })
+        } else {
+            session.transferUserInfo(payload)
+        }
+    }
 }
 
 extension WatchModelReceiver: WCSessionDelegate {
     func session(_ session: WCSession,
                  activationDidCompleteWith activationState: WCSessionActivationState,
                  error: Error?) {}
+
+    /// Messaggio "fine sonar" dall'iPhone (immediato, se raggiungibile).
+    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        if (message["kind"] as? String) == "sonarEnded" {
+            DispatchQueue.main.async { self.onSonarEnded?() }
+        }
+    }
+
+    /// Fallback in coda per il "fine sonar" (se l'iPhone non era raggiungibile via sendMessage).
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        if (userInfo["kind"] as? String) == "sonarEnded" {
+            DispatchQueue.main.async { self.onSonarEnded?() }
+        }
+    }
 
     /// Aggiornamento immediato delle preferenze (interruttori) senza riaddestrare.
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {

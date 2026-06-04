@@ -32,6 +32,15 @@ struct TrackingView: View {
     /// via `tracker.pulseCounter`: spawnato esattamente quando esce un colpetto.
     @State private var activePulses: [UUID] = []
 
+    /// Suggerimento visivo "muoviti" mostrato all'avvio del sonar. Per localizzare la
+    /// sorgente l'utente deve spostarsi e cercare la direzione in cui la vibrazione si
+    /// fa più intensa: la vibrazione da sola non indica il verso. Compare all'apparire
+    /// della view e svanisce da solo dopo qualche secondo (`movePromptDuration`).
+    @State private var showMovePrompt = true
+
+    /// Per quanto resta a schermo il suggerimento "muoviti" prima di dissolversi.
+    private static let movePromptDuration: TimeInterval = 4
+
     var body: some View {
         ZStack {
             backgroundPulse
@@ -58,6 +67,9 @@ struct TrackingView: View {
                     }
                     .scaleEffect(1.0 + 0.15 * CGFloat(tracker.liveLevel))
                     .animation(.easeOut(duration: 0.08), value: tracker.liveLevel)
+                    // Ri-tocco dell'emoji → ferma il sonar (chiude il foglio).
+                    .contentShape(Rectangle())
+                    .onTapGesture { dismiss() }
                 }
                 .frame(width: 100, height: 100)
 
@@ -71,7 +83,13 @@ struct TrackingView: View {
             }
             .padding(.vertical, 6)
         }
-        .onAppear { tracker.startTracking(target: target) }
+        .overlay(alignment: .bottom) {
+            if showMovePrompt { movePrompt }
+        }
+        .onAppear {
+            tracker.startTracking(target: target)
+            scheduleMovePromptDismiss()
+        }
         .onDisappear { tracker.stopTracking() }
         .onChange(of: tracker.state) { _, newState in
             if case .idle = newState { dismiss() }
@@ -84,6 +102,36 @@ struct TrackingView: View {
 
     // Nessun pulsante Stop: si esce dal foglio con la chiusura nativa (X in alto a
     // sinistra) e `onDisappear` ferma il tracking.
+
+    // MARK: - Suggerimento "muoviti"
+
+    /// Banner in basso con figura che cammina: invita l'utente a spostarsi per capire
+    /// da che parte è la sorgente (la vibrazione cresce avvicinandosi). È solo un aiuto
+    /// iniziale, quindi si dissolve da solo dopo `movePromptDuration`.
+    private var movePrompt: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "figure.walk")
+                .font(.system(size: 13, weight: .semibold))
+                .symbolEffect(.wiggle, options: .repeating)
+            Text("Muoviti per localizzare")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.bottom, 6)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// Programma la sparizione del suggerimento "muoviti" dopo `movePromptDuration`.
+    private func scheduleMovePromptDismiss() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.movePromptDuration) {
+            withAnimation(.easeOut(duration: 0.4)) { showMovePrompt = false }
+        }
+    }
 
     // MARK: - Sfondo che pulsa col livello
 

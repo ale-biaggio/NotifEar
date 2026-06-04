@@ -115,6 +115,9 @@ final class TrackingService: ObservableObject {
     /// e rileva la sparizione del target entro 100 ms.
     private static let monitorPeriod: TimeInterval = 0.1
 
+    /// Dopo questo tempo senza il suono target presente, il sonar si ferma da solo.
+    private static let silenceTimeout: TimeInterval = 5
+
     // MARK: - Dipendenze
 
     private weak var viewModel: SoundAnalyzerViewModel?
@@ -124,21 +127,10 @@ final class TrackingService: ObservableObject {
     private var monitorTimer: Timer?
     /// Confidence smoothed con envelope follower, aggiornata dal `monitorTimer`.
     private var smoothedConfidence: Float = 0
+    /// Ultimo istante in cui il target era presente: per l'auto-stop dopo silenzio.
+    private var lastPresentAt: Date = .distantPast
     /// Counter che invalida le closure pending del loop aptico su stop/restart.
     private var executionGeneration: UInt64 = 0
-
-    // MARK: - Stato debug (schermata "Pattern debug")
-
-    /// True quando il motore sta girando in modalità debug (innescato dalla schermata
-    /// di test). Bypassa il gating del classificatore e usa `debugIntensity` come volume
-    /// fittizio, così l'utente può provare le varie intensità senza una sorgente reale.
-    /// Il debug NON si ferma da solo: gira finché non si preme Stop, si cambia livello
-    /// o si lascia la tab.
-    private var isDebugPlayback: Bool = false
-    /// Intensità (0...1) usata dal debug al posto del volume reale del microfono. La
-    /// schermata di test la imposta tramite `playDebugPattern(for:intensity:)` per far
-    /// provare le varie densità di colpetti. Default 0.5.
-    private var debugIntensity: Float = 0.5
 
     // MARK: - Init
 
@@ -154,14 +146,12 @@ final class TrackingService: ObservableObject {
         guard let vm = viewModel else { return }
         if case .tracking(let current) = state, current == target { return }
 
-        // Se era in corso un debug playback, lo interrompiamo.
-        isDebugPlayback = false
-
         vm.setTrackingTarget(for: target)
 
         smoothedConfidence = 0
         liveLevel = 0
         pulseCounter = 0
+        lastPresentAt = Date()   // grace: 5 s dall'avvio per "agganciare" il suono
 
         state = .tracking(target: target)
         WKInterfaceDevice.current().play(.start)
@@ -186,43 +176,6 @@ final class TrackingService: ObservableObject {
         smoothedConfidence = 0
     }
 
-    // MARK: - API debug (schermata "Pattern debug" — RIMUOVERE PRIMA DEL RILASCIO)
-
-    /// Avvia il motore aptico in modalità debug, **bypassando** il classificatore, a un
-    /// volume fittizio fisso (`intensity`, 0...1). Usata dalla schermata di test per far
-    /// provare all'utente le varie densità di colpetti senza dover riprodurre il suono
-    /// reale: debole = colpetti radi, forte = raffica fitta. Il parametro `label` serve
-    /// solo alla view per evidenziare il tile attivo (non cambia più la vibrazione: tutti
-    /// i suoni seguono la stessa logica intensità→densità). Il loop NON si ferma da solo:
-    /// continua finché non si chiama `stopDebugPattern()`.
-    func playDebugPattern(for label: String, intensity: Float = 0.5) {
-        debugIntensity = intensity
-        // Interrompe qualunque cosa fosse in corso (tracking normale o un altro debug).
-        viewModel?.clearTrackingTarget()
-        stopMonitorLoop()
-
-        executionGeneration &+= 1
-        let myGen = executionGeneration
-
-        isDebugPlayback = true
-        state = .idle
-
-        DispatchQueue.main.async { [weak self] in
-            self?.runDebugHaptics(generation: myGen)
-        }
-    }
-
-    /// Ferma il debug playback. Le closure pending del loop si auto-invalidano via
-    /// `executionGeneration`.
-    func stopDebugPattern() {
-        isDebugPlayback = false
-        executionGeneration &+= 1
-    }
-
-    /// True se il motore è attualmente in playback debug. La debug view legge questa
-    /// proprietà per evidenziare il tile attivo.
-    var isPlayingDebugPattern: Bool { isDebugPlayback }
-
     // MARK: - Monitor loop (UI + gating)
 
     private func startMonitorLoop() {
@@ -246,6 +199,14 @@ final class TrackingService: ObservableObject {
         smoothedConfidence = max(vm.currentTargetConfidence, smoothedConfidence * Self.confidenceDecay)
         let isPresent = smoothedConfidence >= Self.confidenceThreshold
 
+        // Auto-stop: se il suono non si sente da più di `silenceTimeout`, ferma il sonar.
+        if isPresent {
+            lastPresentAt = Date()
+        } else if Date().timeIntervalSince(lastPresentAt) > Self.silenceTimeout {
+            stopTracking()
+            return
+        }
+
         liveLevel = isPresent ? Self.intensity(forRMS: vm.currentRMS) : 0
     }
 
@@ -265,23 +226,9 @@ final class TrackingService: ObservableObject {
         }
     }
 
-    /// Come `runTrackingHaptics` ma in modalità debug: nessun gating sul classificatore,
-    /// usa il volume fittizio `debugIntensity` al posto di `liveLevel`. Si auto-ferma
-    /// quando `isDebugPlayback` torna false.
-    private func runDebugHaptics(generation: UInt64) {
-        guard isDebugPlayback, generation == executionGeneration else { return }
-
-        emitHaptic(forLevel: debugIntensity)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.hapticPeriod) { [weak self] in
-            self?.runDebugHaptics(generation: generation)
-        }
-    }
-
     /// Emette il preset haptic della fascia di `level` (più forte il suono, più forte il
     /// colpo). Sotto `silenceThreshold` non vibra. Incrementa `pulseCounter` per la UI
-    /// (un cerchio concentrico per colpo) solo quando vibra davvero. Condiviso da
-    /// tracking e debug.
+    /// (un cerchio concentrico per colpo) solo quando vibra davvero.
     private func emitHaptic(forLevel level: Float) {
         guard let type = Self.haptic(forIntensity: level) else { return }
         WKInterfaceDevice.current().play(type)

@@ -20,15 +20,7 @@ struct NotifEar_Watch_AppApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TabView {
-                ContentView(viewModel: viewModel, tracker: tracker)
-                SessionView(viewModel: viewModel)
-                // TEMPORANEA — schermata di test delle firme aptiche.
-                // Rimuovere insieme a PatternDebugView e alle API debug di
-                // TrackingService prima del rilascio.
-                PatternDebugView(viewModel: viewModel, tracker: tracker)
-            }
-            .tabViewStyle(.page)
+            ContentView(viewModel: viewModel, tracker: tracker)
         }
     }
 }

@@ -155,6 +155,10 @@ struct PhoneRootView: View {
             let work = FileManager.default.temporaryDirectory
                 .appendingPathComponent("training", isDirectory: true)
             let compiled = try await CustomSoundTrainer.train(pairs: pairs, workDirectory: work)
+            // Copia locale sull'iPhone: serve alla modalità Sonar per riconoscere i suoni
+            // custom con lo STESSO modello che spediamo al Watch. Best-effort: se fallisce,
+            // il Sonar userà comunque il classificatore di sistema.
+            try? PhoneCustomModelStore.shared.install(from: compiled)
             connectivity.sendModel(compiledModelURL: compiled, config: store.configPayload())
             trainingState = .done("Modello addestrato e messo in invio al Watch.")
         } catch {

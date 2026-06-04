@@ -67,7 +67,8 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     @Published var statusMessage: String = "Inizializzazione..."
     @Published var isListening: Bool = false
     @Published var detectedSound: SoundInfo?
-    @Published var timeRemaining: TimeInterval = 0
+    /// Vero quando il sistema ha chiuso la sessione di ascolto e il rinnovo non è andato
+    /// a buon fine: la UI mostra "scaduta" e un tocco sull'orecchio fa ripartire tutto.
     @Published var sessionExpired: Bool = false
 
     /// Pipeline audio attualmente collegata all'inputNode. Cambiarla solo tramite `switchPipeline(to:)`.
@@ -98,7 +99,17 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     /// personalizzati si calcola lì, non nel ramo di sistema. Impostato da `setTrackingTarget(for:)`.
     private var trackingCustomLabels: Set<String> = []
 
-    static let sessionDuration: TimeInterval = 30 * 60 // 30 minuti
+    /// Soppressione del re-trigger mentre l'iPhone sta localizzando un suono (handoff): il
+    /// Watch non lo ri-annuncia finché l'iPhone non segnala la fine (o scatta il timeout).
+    /// Per il sonar SUL WATCH la soppressione usa già `trackingTargetIdentifiers`/`...CustomLabels`.
+    private var sonarSuppressedIdentifiers: Set<String> = []
+    private var sonarSuppressedCustomLabels: Set<String> = []
+    private var sonarSuppressionTimer: Timer?
+
+    /// Identifier di sistema da NON ri-annunciare: bersaglio del sonar sul Watch + sull'iPhone.
+    private var suppressedSystemIdentifiers: Set<String> { trackingTargetIdentifiers.union(sonarSuppressedIdentifiers) }
+    /// Label custom da NON ri-annunciare.
+    private var suppressedCustomLabels: Set<String> { trackingCustomLabels.union(sonarSuppressedCustomLabels) }
 
     let audioEngine = AVAudioEngine()
     var streamAnalyzer: SNAudioStreamAnalyzer?
@@ -131,7 +142,6 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     private var customLastAlertAt: Date?
 
     private var extendedSession: WKExtendedRuntimeSession?
-    private var countdownTimer: Timer?
     private let notificationCenter = UNUserNotificationCenter.current()
 
     // MARK: - Stato per intent vocali
@@ -181,21 +191,12 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             guard let self = self, self.isListening, self.activePipeline == .classification else { return }
             self.switchPipeline(to: .classification)
         }
+        // L'iPhone ha finito di localizzare un suono → riprendi ad avvisare per quel suono.
+        WatchModelReceiver.shared.onSonarEnded = { [weak self] in
+            self?.clearSonarSuppression()
+        }
     }
 
-    // MARK: - Formatted time
-    
-    var formattedTimeRemaining: String {
-        let minutes = Int(timeRemaining) / 60
-        let seconds = Int(timeRemaining) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-    
-    var sessionProgress: Double {
-        guard Self.sessionDuration > 0 else { return 0 }
-        return timeRemaining / Self.sessionDuration
-    }
-    
     // MARK: - Listening
     
     func startListening() {
@@ -203,21 +204,32 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
         sessionExpired = false
         AVAudioApplication.requestRecordPermission { [weak self] granted in
             DispatchQueue.main.async {
-                if granted {
-                    self?.requestNotificationPermission()
-                    self?.startExtendedSession()
-                    self?.setupAudioAndStart()
-                } else {
-                    self?.statusMessage = "Permesso negato"
+                guard let self = self else { return }
+                guard granted else {
+                    self.statusMessage = "Permesso negato"
+                    return
+                }
+                // Feedback IMMEDIATO: l'orecchio passa subito a "in ascolto", così il tocco
+                // non sembra in ritardo. L'avvio audio vero e proprio (che include una breve
+                // pausa di stabilizzazione dell'hardware) gira FUORI dal main thread, così
+                // non blocca né fa "scattare" l'interfaccia.
+                self.isListening = true
+                self.statusMessage = "In ascolto..."
+                self.requestNotificationPermission()
+                self.startExtendedSession()
+                self.analysisQueue.async {
+                    let ready = self.prepareAudioSession()
+                    DispatchQueue.main.async {
+                        if ready {
+                            self.switchPipeline(to: .classification)
+                        } else {
+                            // Avvio fallito: torna allo stato "fermo".
+                            self.isListening = false
+                        }
+                    }
                 }
             }
         }
-    }
-    
-    private func setupAudioAndStart() {
-        // Prepara l'audio session una volta e installa la pipeline di classificazione.
-        guard prepareAudioSession() else { return }
-        switchPipeline(to: .classification)
     }
 
     /// Configura `AVAudioSession` e fa partire l'engine "pulito". Ritorna false in caso di errore.
@@ -231,7 +243,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             // Piccolo delay per permettere all'hardware di stabilizzarsi
             Thread.sleep(forTimeInterval: 0.2)
         } catch {
-            self.statusMessage = "Errore Audio"
+            DispatchQueue.main.async { self.statusMessage = "Errore Audio" }
             return false
         }
 
@@ -242,7 +254,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
 
         let recordingFormat = audioEngine.inputNode.outputFormat(forBus: 0)
         guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-            self.statusMessage = "Errore Hardware"
+            DispatchQueue.main.async { self.statusMessage = "Errore Hardware" }
             return false
         }
         return true
@@ -261,7 +273,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
         removeCurrentTap()
         let recordingFormat = audioEngine.inputNode.outputFormat(forBus: 0)
         guard recordingFormat.sampleRate > 0 && recordingFormat.channelCount > 0 else {
-            self.statusMessage = "Errore Hardware"; return
+            self.isListening = false; self.statusMessage = "Errore Hardware"; return
         }
 
         streamAnalyzer = SNAudioStreamAnalyzer(format: recordingFormat)
@@ -279,7 +291,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
                 customSoundRequest = nil
             }
         } catch {
-            self.statusMessage = "Errore Sistema"; return
+            self.isListening = false; self.statusMessage = "Errore Sistema"; return
         }
 
         audioEngine.inputNode.installTap(onBus: 0, bufferSize: 8192, format: recordingFormat) { [weak self] buffer, time in
@@ -299,6 +311,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             self.isListening = true
             self.statusMessage = "In ascolto..."
         } catch {
+            self.isListening = false
             self.statusMessage = "Errore Avvio"
         }
     }
@@ -337,7 +350,17 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             self.startListening()
         }
     }
-    
+
+    /// Interruttore dell'ascolto: l'orecchio nella schermata principale lo chiama a ogni
+    /// tocco. Se sta ascoltando lo ferma; altrimenti (fermo o sessione scaduta) lo riavvia.
+    func toggleListening() {
+        if isListening {
+            stopListening()
+        } else {
+            startListening()
+        }
+    }
+
     /// Dismiss dell'alert corrente (usato da Double Tap e tap su schermo)
     func dismissAlert() {
         if detectedSound != nil {
@@ -345,13 +368,14 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             statusMessage = isListening ? "In ascolto..." : "Fermo"
         }
     }
-    
-    /// Azione primaria Double Tap: dismiss alert se attivo, restart se scaduta
+
+    /// Azione primaria Double Tap: se c'è un alert lo chiude, altrimenti accende/spegne
+    /// l'ascolto (incluso il riavvio quando la sessione è scaduta).
     func handlePrimaryAction() {
         if detectedSound != nil {
             dismissAlert()
-        } else if sessionExpired {
-            restartSession()
+        } else {
+            toggleListening()
         }
     }
     
@@ -389,46 +413,44 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     
     private func startExtendedSession() {
         extendedSession?.invalidate()
-        extendedSession = nil
-        
+        startSession()
+    }
+
+    /// Crea e avvia una nuova sessione di sistema, sostituendo l'eventuale precedente nel
+    /// riferimento. Usata sia all'avvio dell'ascolto sia per il rinnovo "al volo".
+    private func startSession() {
         let session = WKExtendedRuntimeSession()
         session.delegate = self
         session.start()
         extendedSession = session
-        
-        // Avvia il timer di countdown
-        timeRemaining = Self.sessionDuration
-        countdownTimer?.invalidate()
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            if self.timeRemaining > 0 {
-                self.timeRemaining -= 1
-            } else {
-                self.onSessionExpired()
-            }
-        }
     }
-    
+
+    /// Rinnovo trasparente: quando la sessione corrente sta per scadere ne apriamo subito
+    /// una nuova, così l'ascolto non si interrompe. La vecchia sessione invaliderà da sola
+    /// poco dopo: il suo `didInvalidate` viene ignorato perché non è più quella corrente.
+    /// È questo concatenamento a dare la "durata massima" restando invisibili (nessun
+    /// allenamento, nessun anello attività). Se il sistema NON concede il rinnovo, la
+    /// nuova sessione invalida subito e cade il fallback "scaduta → ritocca l'orecchio".
+    private func renewExtendedSession() {
+        guard isListening else { return }
+        startSession()
+    }
+
     private func stopExtendedSession() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        timeRemaining = 0
         extendedSession?.invalidate()
         extendedSession = nil
     }
-    
+
     private func onSessionExpired() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        
         // Haptic per avvisare l'utente
         WKInterfaceDevice.current().play(.stop)
-        
+
         self.isListening = false
         self.sessionExpired = true
         self.statusMessage = "Sessione scaduta"
         self.detectedSound = nil
         self.activePipeline = .idle
+        self.extendedSession = nil
 
         removeCurrentTap()
         try? AVAudioSession.sharedInstance().setActive(false)
@@ -487,6 +509,31 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     }
 
     // MARK: - Muting categorie (usato da intent vocali)
+
+    // MARK: - Soppressione re-trigger durante il sonar sull'iPhone
+
+    /// L'iPhone ha iniziato a localizzare un suono (handoff): finché dura, il Watch non lo
+    /// ri-annuncia. Timeout di sicurezza nel caso il messaggio di fine non arrivi.
+    func setSonarSuppression(identifiers: [String], customLabel: String?) {
+        DispatchQueue.main.async {
+            self.sonarSuppressedIdentifiers = Set(identifiers)
+            self.sonarSuppressedCustomLabels = customLabel.map { [$0] } ?? []
+            self.sonarSuppressionTimer?.invalidate()
+            self.sonarSuppressionTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
+                self?.clearSonarSuppression()
+            }
+        }
+    }
+
+    /// L'iPhone ha terminato il sonar (o timeout): il Watch torna ad avvisare per quel suono.
+    func clearSonarSuppression() {
+        DispatchQueue.main.async {
+            self.sonarSuppressedIdentifiers = []
+            self.sonarSuppressedCustomLabels = []
+            self.sonarSuppressionTimer?.invalidate()
+            self.sonarSuppressionTimer = nil
+        }
+    }
 
     /// Vero se la categoria è attualmente silenziata da un intent "ignora ... per un'ora".
     func isCategoryMuted(_ category: SoundCategory) -> Bool {
@@ -566,6 +613,9 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             DispatchQueue.main.async {
                 // Filtro muting: se la categoria è silenziata da un comando vocale, ignoro l'alert.
                 if self.isCategoryMuted(info.category) { return }
+                // Soppressione: se questo suono è il bersaglio del sonar attivo (Watch o
+                // iPhone), non ri-annunciarlo — lo stai già localizzando.
+                if self.suppressedSystemIdentifiers.contains(topMatch.identifier) { return }
 
                 if self.detectedSound != info {
                     self.detectedSound = info
@@ -575,6 +625,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
                     self.playHaptic(for: info.category)
                     self.sendLocalNotification(for: info)
                     WatchModelReceiver.shared.reportDetection(label: info.label, category: info.category.rawValue)
+                    WatchHistoryStore.shared.add(label: info.label, category: info.category.rawValue)
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
                         if self.isListening && self.detectedSound == info {
@@ -620,6 +671,12 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
         guard let top = sorted.first else { resetCustomHits(); return }
 
         let label = top.identifier
+
+        // Soppressione: se questo suono custom è il bersaglio del sonar attivo (Watch o
+        // iPhone), non ri-annunciarlo. Il gating del sonar è gestito a parte
+        // (`updateCustomTargetConfidence`), quindi qui salta solo l'avviso.
+        if suppressedCustomLabels.contains(label) { return }
+
         let conf = Float(top.confidence)
         let second = Float(sorted.dropFirst().first?.confidence ?? 0)
         let margin = conf - second
@@ -654,6 +711,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             self.playHaptic(for: info.category)
             self.sendLocalNotification(for: info)
             WatchModelReceiver.shared.reportDetection(label: info.label, category: info.category.rawValue)
+            WatchHistoryStore.shared.add(label: info.label, category: info.category.rawValue)
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
                 if self.isListening && self.detectedSound == info {
@@ -710,34 +768,42 @@ extension SoundAnalyzerViewModel: WKExtendedRuntimeSessionDelegate {
     }
     
     func extendedRuntimeSessionWillExpire(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
-        print("⚠️ Extended session in scadenza")
+        print("⚠️ Extended session in scadenza → rinnovo trasparente")
         DispatchQueue.main.async {
-            self.onSessionExpired()
+            // Apri subito una nuova sessione così l'ascolto non si interrompe. L'audio
+            // resta attivo nel frattempo. La vecchia sessione invaliderà da sola.
+            self.renewExtendedSession()
         }
     }
-    
+
     func extendedRuntimeSession(_ extendedRuntimeSession: WKExtendedRuntimeSession, didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason, error: (any Error)?) {
         print("❌ Extended session invalidata: \(reason) (rawValue: \(reason.rawValue)) - Error: \(String(describing: error))")
-        
+
         DispatchQueue.main.async {
+            // Ignora le sessioni "vecchie" già sostituite da un rinnovo: solo quella
+            // corrente conta. (Su rinnovo, la precedente invalida poco dopo.)
+            guard extendedRuntimeSession === self.extendedSession else {
+                print("ℹ️ Invalidazione di una sessione già sostituita: ignoro.")
+                return
+            }
+            guard self.isListening else { return }
+
             switch reason {
             case .expired, .suppressedBySystem:
-                // La sessione è scaduta naturalmente o il sistema l'ha soppressa → ferma tutto
-                if self.isListening {
-                    self.onSessionExpired()
-                }
+                // Il rinnovo non è andato a buon fine (il sistema non concede altra
+                // sessione): fermiamo l'ascolto e mostriamo "scaduta". Un tocco
+                // sull'orecchio lo fa ripartire.
+                self.onSessionExpired()
             case .error:
                 // Errore esterno (es. debugger collegato, conflitto sessioni).
                 // L'audio continua a funzionare in foreground, ma il background non è garantito.
                 // Non fermiamo l'ascolto, proviamo a ricreare la sessione dopo un delay.
                 print("⚠️ Sessione persa ma audio in foreground attivo. Retry tra 5s...")
+                self.extendedSession = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
                     if self.isListening && self.extendedSession == nil {
                         print("🔄 Tentativo di riavvio sessione estesa...")
-                        let newSession = WKExtendedRuntimeSession()
-                        newSession.delegate = self
-                        newSession.start()
-                        self.extendedSession = newSession
+                        self.startSession()
                     }
                 }
             default:
