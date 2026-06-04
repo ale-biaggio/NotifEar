@@ -32,12 +32,16 @@ final class SonarHapticEngine {
 
     /// Sotto questo livello: nessun impulso (silenzio).
     private static let silence: Float = 0.06
-    /// Intensità dell'impulso al livello minimo udibile (poi sale fino a 1.0).
-    private static let minIntensity: CGFloat = 0.2
-    /// Frequenza degli impulsi (in Hz) interpolata LINEARMENTE col volume, così sale in
-    /// proporzione esattamente come l'intensità: lenta al minimo → rapida al massimo.
-    private static let minFrequency: Double = 1.5
-    private static let maxFrequency: Double = 12.0
+    /// Intensità dell'impulso al livello minimo udibile (poi sale LINEARE fino a 1.0).
+    private static let minIntensity: CGFloat = 0.25
+    /// Frequenza degli impulsi (in Hz) — stile "metal detector": al minimo MOLTO rada
+    /// (~0,6 Hz = uno ogni ~1,7 s), poi si infittisce fino a ~13 Hz (quasi continuo).
+    private static let minFrequency: Double = 0.6
+    private static let maxFrequency: Double = 13.0
+    /// Curva sulla frequenza (esponente > 1): più è alto, più a lungo gli impulsi restano
+    /// RADI salendo di volume — la raffica arriva solo vicino al massimo. 2.8 → la fascia
+    /// lenta si estende fin verso metà corsa. L'intensità resta lineare (cresce subito).
+    private static let frequencyCurve: Double = 2.8
     /// Ogni quanto ricontrollare quando si è sotto la soglia di silenzio.
     private static let idleInterval: TimeInterval = 0.12
 
@@ -79,9 +83,9 @@ final class SonarHapticEngine {
             let intensity = Self.minIntensity + (1 - Self.minIntensity) * CGFloat(lvl)
             generator?.impactOccurred(intensity: intensity)
             generator?.prepare()
-            // Frequenza LINEARE col volume (come l'intensità): le due salgono insieme e in
-            // proporzione su tutta la scala, niente saturazione precoce della cadenza.
-            let freq = Self.minFrequency + (Self.maxFrequency - Self.minFrequency) * Double(lvl)
+            // Frequenza con curva (lvl^frequencyCurve): ai volumi bassi gli impulsi sono
+            // ben distanziati, poi si infittiscono salendo. L'intensità resta lineare.
+            let freq = Self.minFrequency + (Self.maxFrequency - Self.minFrequency) * pow(Double(lvl), Self.frequencyCurve)
             interval = 1.0 / freq
         }
 

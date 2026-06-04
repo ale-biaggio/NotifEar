@@ -79,11 +79,13 @@ final class PhoneSoundRecognizer: NSObject, ObservableObject, SNResultsObserving
     private func setupAndStart() {
         let session = AVAudioSession.sharedInstance()
         do {
-            // .playAndRecord + mode .default per far convivere microfono e haptic.
-            try session.setCategory(.playAndRecord, mode: .default, options: [])
-            // LA CHIAVE: di default iOS SILENZIA le vibrazioni mentre il microfono registra
-            // (per non far entrare il ronzio del Taptic Engine nell'audio). Senza questo il
-            // sonar non vibrava affatto. Questo metodo le riabilita durante la registrazione.
+            // mode .measurement: DISATTIVA l'AGC (controllo automatico di guadagno) di iOS.
+            // Con .default l'AGC appiattiva le differenze di volume → l'RMS restava quasi
+            // costante e la vibrazione sembrava "acceso/spento". Con .measurement l'RMS
+            // riflette il VOLUME VERO, quindi la vibrazione segue gradualmente la distanza.
+            try session.setCategory(.playAndRecord, mode: .measurement, options: [])
+            // Riabilita le vibrazioni durante la registrazione (altrimenti iOS le muta per
+            // non far entrare il ronzio del Taptic Engine nell'audio registrato).
             try? session.setAllowHapticsAndSystemSoundsDuringRecording(true)
             try session.setActive(true)
         } catch {

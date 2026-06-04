@@ -44,6 +44,11 @@ final class PhoneSonarController: ObservableObject {
     private let haptics = SonarHapticEngine()
     private var monitorTimer: Timer?
     private var smoothedConfidence: Float = 0
+    /// Livello "levigato" (one-pole): fa scorrere dolcemente la vibrazione invece di
+    /// scattare on/off. Attacco più rapido del rilascio (sale svelto, scende morbido).
+    private var smoothedLevel: Float = 0
+    private static let attackFactor: Float = 0.5
+    private static let releaseFactor: Float = 0.18
     /// Ultimo istante in cui il target era presente: per l'auto-stop dopo silenzio.
     private var lastPresentAt: Date = .distantPast
 
@@ -54,6 +59,7 @@ final class PhoneSonarController: ObservableObject {
     func start(target: SonarTarget) {
         recognizer.setTarget(identifiers: target.identifiers, customLabel: target.customLabel)
         smoothedConfidence = 0
+        smoothedLevel = 0
         liveLevel = 0
         lastPresentAt = Date()   // grace: 5 s dall'avvio per "agganciare" il suono
         isActive = true
@@ -72,6 +78,7 @@ final class PhoneSonarController: ObservableObject {
         isActive = false
         liveLevel = 0
         smoothedConfidence = 0
+        smoothedLevel = 0
     }
 
     // MARK: - Monitor loop
@@ -104,11 +111,15 @@ final class PhoneSonarController: ObservableObject {
             return
         }
 
-        // `liveLevel` (0...1) pilota SIA la UI SIA la vibrazione. Il motore haptic gestisce
-        // soglia di silenzio, intensità e frequenza degli impulsi in base a questo livello.
-        let raw = isPresent ? Self.intensity(forRMS: recognizer.currentRMS) : 0
-        liveLevel = raw
-        haptics.setLevel(raw)
+        // Livello grezzo dal volume (0 se il target non è presente), poi LEVIGATO con un
+        // one-pole (attacco rapido / rilascio morbido): la vibrazione scorre invece di
+        // scattare on/off.
+        let target = isPresent ? Self.intensity(forRMS: recognizer.currentRMS) : 0
+        let factor = target > smoothedLevel ? Self.attackFactor : Self.releaseFactor
+        smoothedLevel += (target - smoothedLevel) * factor
+
+        liveLevel = smoothedLevel
+        haptics.setLevel(smoothedLevel)
     }
 
     // MARK: - Mapping volume → intensità
