@@ -221,9 +221,7 @@ git update-index --assume-unchanged NotifEar.xcodeproj/project.pbxproj
 | Alert Watch: vibrazione per categoria + visivo + notifica | ✅ |
 | Tracking/sonar aptico sul Watch (intensità a preset) | ✅ |
 | Storico: completo su iPhone, "Smart Stack" sul Watch | ✅ |
-| **Sonar su iPhone** (handoff, vibrazione granulare, auto-stop, anti re-trigger) | ✅ |
-| Affinamento curva intensità/frequenza del Sonar iPhone | 🔧 da rifinire |
-| Direzione del suono | ❌ non fattibile (iOS non espone i microfoni grezzi) |
+| **Sonar su iPhone** (handoff, vibrazione granulare "metal detector", auto-stop, anti re-trigger) | ✅ |
 
 ---
 
