@@ -8,17 +8,48 @@
 import SwiftUI
 
 struct ContentView: View {
+    private enum PresentedSheet: Identifiable {
+        case detected(SoundInfo)
+        case tracking(SoundInfo)
+
+        var id: String {
+            switch self {
+            case .detected(let sound), .tracking(let sound):
+                return "sound-\(sound.id)"
+            }
+        }
+    }
+
     @ObservedObject var viewModel: SoundAnalyzerViewModel
     @ObservedObject var tracker: TrackingService
 
     /// Riceve i modelli di suoni personalizzati dall'iPhone.
     @ObservedObject private var modelReceiver = WatchModelReceiver.shared
 
-    /// Suono target selezionato dal tap sul tile. Quando non-nil presenta lo sheet TrackingView.
-    @State private var trackingTarget: SoundInfo?
+    /// Sheet attualmente presentato: avviso del suono oppure Sonar/Tracking sul Watch.
+    @State private var presentedSheet: PresentedSheet?
+
+    /// Target in transizione dall'avviso al Sonar. Durante questo passaggio ignoriamo
+    /// eventuali re-trigger dello stesso suono finché la sheet di tracking non è pronta.
+    @State private var pendingTrackingTarget: SoundInfo?
 
     /// Testo del banner transitorio (es. "Nuovo suono ricevuto").
     @State private var bannerText: String?
+
+    /// Binding unico di presentazione: usando `.sheet` watchOS disegna la stessa X
+    /// nativa sia sull'avviso sia nella schermata Sonar/Tracking.
+    private var presentedSheetBinding: Binding<PresentedSheet?> {
+        Binding(
+            get: { presentedSheet },
+            set: { newValue in
+                if newValue == nil {
+                    pendingTrackingTarget = nil
+                    viewModel.dismissAlert()
+                }
+                presentedSheet = newValue
+            }
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -46,12 +77,8 @@ struct ContentView: View {
                 viewModel.toggleListening()
             }
 
-            // Suono riconosciuto: emoji SOPRA A TUTTO (anche sopra lo storico se è stato
-            // tirato su), con sfondo pieno che lo copre. Tap sull'icona → Sonar sul Watch;
-            // pulsante → delega la localizzazione all'iPhone.
-            if let detected = viewModel.detectedSound {
-                detectedOverlay(detected)
-            }
+            // L'avviso del suono è presentato come sheet sotto: così la X è quella
+            // nativa di watchOS, identica a quella del Sonar avviato.
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.detectedSound?.label)
         // Double Tap (pizzico pollice-indice): chiude l'avviso oppure accende/spegne l'ascolto
@@ -66,9 +93,15 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.startListening()
+            syncDetectedAlert(with: viewModel.detectedSound)
         }
-        .sheet(item: $trackingTarget) { target in
-            TrackingView(target: target, tracker: tracker, viewModel: viewModel)
+        .sheet(item: presentedSheetBinding) { fallbackSheet in
+            switch presentedSheet ?? fallbackSheet {
+            case .detected(let detected):
+                detectedAlertSheet(detected)
+            case .tracking(let target):
+                TrackingView(target: target, tracker: tracker, viewModel: viewModel)
+            }
         }
         // Banner transitorio quando arriva un nuovo modello dall'iPhone.
         .overlay(alignment: .top) {
@@ -88,6 +121,9 @@ struct ContentView: View {
         }
         .onChange(of: modelReceiver.lastErrorMessage) { _, newValue in
             if newValue != nil { showBanner("Errore ricezione suono") }
+        }
+        .onChange(of: viewModel.detectedSound) { _, newValue in
+            syncDetectedAlert(with: newValue)
         }
     }
 
@@ -146,10 +182,9 @@ struct ContentView: View {
         .onTapGesture { viewModel.dismissAlert() }
     }
 
-    /// Schermata d'allarme del suono riconosciuto: compare SOPRA tutto il resto (anche
-    /// sopra lo storico se era tirato su) grazie a uno sfondo pieno che lo copre. Tap
-    /// sull'icona → Sonar sul Watch; pulsante → delega la localizzazione all'iPhone.
-    private func detectedOverlay(_ detected: SoundInfo) -> some View {
+    /// Schermata d'allarme del suono riconosciuto: il tap fuori dai controlli
+    /// chiude l'avviso, il bottone principale apre il Sonar sul Watch.
+    private func detectedAlertSheet(_ detected: SoundInfo) -> some View {
         ZStack {
             // Base SOLIDA: copre del tutto schermata principale e storico sotto.
             Color.black.ignoresSafeArea()
@@ -160,52 +195,49 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
-            VStack(spacing: 10) {
-                VStack(spacing: 8) {
-                    if detected.isSystemIcon {
-                        Image(systemName: detected.iconName)
-                            .font(.system(size: 56, weight: .bold))
-                            .foregroundColor(detected.color)
-                    } else {
-                        Text(detected.iconName)
-                            .font(.system(size: 64))
+            VStack(spacing: 0) {
+                VStack(spacing: 6) {
+                    Spacer(minLength: 8)
+
+                    VStack(spacing: 4) {
+                        Group {
+                            if detected.isSystemIcon {
+                                Image(systemName: detected.iconName)
+                                    .font(.system(size: 70, weight: .bold))
+                                    .foregroundColor(detected.color)
+                            } else {
+                                Text(detected.iconName)
+                                    .font(.system(size: 80))
+                            }
+                        }
+                        .frame(width: 100, height: 100)
+
+                        Text(detected.label)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.65)
                     }
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Suono rilevato: \(detected.label)")
 
-                    Text(detected.label)
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                    Spacer(minLength: 0)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 10)
                 .contentShape(Rectangle())
-                .onTapGesture { trackingTarget = detected }
-
-                Button {
-                    // Delego all'iPhone → fermo l'eventuale sonar sul Watch (un solo
-                    // dispositivo alla volta deve fare il sonar).
-                    tracker.stopTracking()
-                    trackingTarget = nil
-                    let ids = Array(viewModel.identifiers(matching: detected))
-                    WatchModelReceiver.shared.requestSonarOnPhone(
-                        label: detected.label,
-                        category: detected.category.rawValue,
-                        iconName: detected.iconName,
-                        isSystemIcon: detected.isSystemIcon,
-                        identifiers: ids,
-                        customLabel: detected.customIdentifier
-                    )
-                    // Mentre l'iPhone localizza questo suono, il Watch non lo ri-annuncia.
-                    viewModel.setSonarSuppression(identifiers: ids, customLabel: detected.customIdentifier)
-                    showBanner("Inviato all'iPhone 📱")
-                } label: {
-                    Label("Localizza su iPhone", systemImage: "iphone.radiowaves.left.and.right")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .onTapGesture {
+                    dismissDetectedAlert()
                 }
-                .buttonStyle(.bordered)
-                .tint(detected.color)
+                .accessibilityAddTraits(.isButton)
+
+                sonarActionBar(for: detected)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 6)
+                    .padding(.top, 2)
             }
-            .padding(.horizontal)
         }
-        .transition(.asymmetric(insertion: .scale.combined(with: .opacity), removal: .opacity))
-        .id(detected.label)
     }
 
     /// Orecchio interruttore: mostra stato (ascolto / fermo / scaduto) e, al tocco,
@@ -251,6 +283,91 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             withAnimation { if bannerText == text { bannerText = nil } }
         }
+    }
+
+    private func dismissDetectedAlert() {
+        viewModel.dismissAlert()
+        if case .detected = presentedSheet {
+            presentedSheet = nil
+        }
+    }
+
+    private func presentWatchSonar(for detected: SoundInfo) {
+        // Arma subito il target e cambia contenuto della stessa sheet: nessun intervallo
+        // "vuoto" in cui il suono continuo possa riaprire l'avviso sotto al Sonar.
+        pendingTrackingTarget = detected
+        viewModel.setTrackingTarget(for: detected)
+        presentedSheet = .tracking(detected)
+        viewModel.dismissAlert()
+
+        DispatchQueue.main.async {
+            guard pendingTrackingTarget == detected else { return }
+            pendingTrackingTarget = nil
+        }
+    }
+
+    private func syncDetectedAlert(with detected: SoundInfo?) {
+        if pendingTrackingTarget != nil { return }
+        if case .tracking = presentedSheet {
+            if detected != nil { viewModel.dismissAlert() }
+            return
+        }
+        if let detected {
+            presentedSheet = .detected(detected)
+        } else if case .detected = presentedSheet {
+            presentedSheet = nil
+        }
+    }
+
+    private func sonarActionBar(for detected: SoundInfo) -> some View {
+        Button {
+            presentWatchSonar(for: detected)
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 16, weight: .bold))
+                    .symbolEffect(.pulse, options: .repeating)
+                    .frame(width: 31, height: 31)
+                    .background(.white.opacity(0.10), in: Circle())
+                    .overlay {
+                        Circle()
+                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+                    }
+
+                Text("Sonar")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(.white)
+            .padding(.leading, 8)
+            .padding(.trailing, 15)
+            .frame(height: 44)
+            .background {
+                Capsule()
+                    .fill(.white.opacity(0.08))
+                    .overlay {
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        .white.opacity(0.20),
+                                        detected.color.opacity(0.18),
+                                        .white.opacity(0.05)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(.white.opacity(0.22), lineWidth: 0.9)
+                    }
+            }
+            .glassEffect(.regular.tint(detected.color.opacity(0.18)).interactive(), in: .capsule)
+            .shadow(color: detected.color.opacity(0.30), radius: 9, y: 3)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Apri Sonar sul Watch")
     }
 }
 

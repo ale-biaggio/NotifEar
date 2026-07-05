@@ -24,6 +24,7 @@ struct HistoryStackView: View {
     /// Avanzamento dello scroll: 0 a riposo, 1 quando lo storico è salito di una schermata.
     /// Pilota l'intensità della velatura sfocata dietro le card.
     @State private var reveal: CGFloat = 0
+    @State private var confirmClearAll = false
 
     var body: some View {
         ZStack {
@@ -57,6 +58,10 @@ struct HistoryStackView: View {
                                 .padding(.horizontal, 6)
                                 .riseLikeSmartStack()
                         }
+
+                        clearHistoryButton
+                            .padding(.top, 2)
+                            .riseLikeSmartStack()
                     }
 
                     Spacer(minLength: 10)
@@ -70,6 +75,14 @@ struct HistoryStackView: View {
             } action: { _, newValue in
                 reveal = newValue
             }
+        }
+        .confirmationDialog("Cancellare tutto lo storico?",
+                            isPresented: $confirmClearAll,
+                            titleVisibility: .visible) {
+            Button("Cancella tutto", role: .destructive) {
+                store.clear()
+            }
+            Button("Annulla", role: .cancel) {}
         }
     }
 
@@ -89,6 +102,22 @@ struct HistoryStackView: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color(white: 0.16))
         )
+    }
+
+    private var clearHistoryButton: some View {
+        Button {
+            confirmClearAll = true
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.red)
+                .frame(width: 38, height: 38)
+                .contentShape(Circle())
+                .glassEffect(.regular.tint(.red.opacity(0.18)).interactive(), in: .circle)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel("Cancella storico")
     }
 }
 

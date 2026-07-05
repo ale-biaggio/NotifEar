@@ -4,7 +4,7 @@
 
 A questa si affianca una **app companion per iPhone** con due ruoli:
 1. **Insegnare suoni personalizzati** (es. il proprio citofono): si registrano campioni, si addestra un modello *direttamente sull'iPhone* e lo si invia al Watch, dove gira **accanto** al classificatore di sistema.
-2. **Modalità Sonar** (novità): localizzare un suono già riconosciuto facendo vibrare l'iPhone in modo **granulare** (intensità *e* frequenza proporzionali al volume), attivata con un tocco dall'Apple Watch. Sfrutta il Taptic Engine dell'iPhone, che — a differenza del Watch — permette vibrazioni a intensità continua.
+2. **Modalità Sonar su iPhone**: dopo aver aperto il Sonar sul Watch, puoi passare lo stesso target all'iPhone con il chip **"Passa a iPhone →"**. L'iPhone vibra in modo **granulare** (intensità *e* frequenza proporzionali al volume), sfruttando il Taptic Engine che, a differenza del Watch, permette un controllo più continuo.
 
 ---
 
@@ -47,14 +47,15 @@ I suoni sono organizzati in **4 categorie** con un **codice colore proporzionale
 > Il nome interno della categoria (`emergency`/`danger`/`home`/`attention`) è la chiave usata per salvataggio e comunicazione tra i dispositivi e **non cambia**; i nomi leggibili e i colori sono definiti in un unico punto per app (`SoundCategory`).
 
 ### 🎯 Modalità Tracking (sonar aptico sul Watch)
-Toccando l'icona di un suono rilevato si entra in **Tracking**: il Watch emette un pattern aptico la cui **intensità segue quanto il suono è forte/presente** in quel momento, per aiutare a localizzarne la sorgente spostandosi verso dove la vibrazione cresce. Dettagli:
+Quando compare un suono rilevato, il Watch mostra una sheet a schermo pieno con la X nativa Liquid Glass e un solo pulsante **"Sonar"**. Premendolo si entra in **Tracking**: il Watch emette un pattern aptico la cui **intensità segue quanto il suono è forte/presente** in quel momento, per aiutare a localizzarne la sorgente spostandosi verso dove la vibrazione cresce. Dettagli:
 - Quando il suono target sparisce la vibrazione si zittisce (gating sulla confidence), anche se il rumore di fondo resta alto.
-- **Ri-tocco dell'emoji** → ferma il Tracking.
+- **X nativa**, **tap sullo sfondo** o **ri-tocco dell'emoji** → fermano il Tracking.
 - **Auto-stop dopo 5 s** senza il suono target.
-- Sul Watch l'intensità è approssimata da preset aptici (CoreHaptics non esiste su watchOS): per la vibrazione **a intensità continua** c'è la modalità Sonar **su iPhone** (vedi sotto), richiamabile col pulsante **"Localizza su iPhone"**.
+- L'emoji/icona resta della stessa dimensione tra l'alert iniziale e il Sonar: nel Sonar cambiano solo sfondo e onde concentriche sincronizzate ai colpi aptici.
+- Sul Watch l'intensità è approssimata da preset aptici (CoreHaptics non esiste su watchOS): per la vibrazione **a intensità continua** c'è la modalità Sonar **su iPhone** (vedi sotto), richiamabile solo dopo l'ingresso nel Sonar Watch tramite chip **"Passa a iPhone →"**.
 
 ### 🗂️ Storico locale "Smart Stack"
-Sotto la schermata principale c'è uno **storico a colpo d'occhio** in stile Smart Stack del quadrante: a riposo non si vede (resta l'orecchio + una freccia), e **trascinando su con la Digital Crown** le card dei suoni rilevati salgono una a una. Raggruppato per tipo di suono, con colore di gravità e conteggio. È volutamente minimale: lo storico completo e ricco vive nell'app iPhone (il Watch continua comunque a inviarle ogni evento).
+Sotto la schermata principale c'è uno **storico a colpo d'occhio** in stile Smart Stack del quadrante: a riposo non si vede (resta l'orecchio + una freccia), e **trascinando su con la Digital Crown** le card dei suoni rilevati salgono una a una. Raggruppato per tipo di suono, con colore di gravità e conteggio. Include un cestino Liquid Glass per cancellare tutto lo storico dal Watch. È volutamente minimale: lo storico completo e ricco vive nell'app iPhone (il Watch continua comunque a inviarle ogni evento).
 
 ### ⏱️ Ascolto in background (sessione estesa)
 - L'ascolto parte **automaticamente** all'apertura dell'app.
@@ -68,13 +69,14 @@ Sotto la schermata principale c'è uno **storico a colpo d'occhio** in stile Sma
 
 ### 🖐️ Gesture
 - **Double Tap** (pizzico pollice-indice, Series 9+): chiude un alert attivo o riavvia la sessione se scaduta.
-- **Tap sullo schermo**: chiude l'alert corrente.
+- **Tap sullo sfondo**: chiude l'alert corrente o il Sonar; i controlli dell'interfaccia (Sonar, handoff iPhone, storico) restano esclusi da questo gesto.
 - **Digital Crown / trascinamento**: rivela lo storico Smart Stack.
 
 ### 🎨 Interfaccia
 Schermata unica a strati:
 1. **Stato d'ascolto** (icona `ear`/`ear.and.waveform`): tocca per accendere/spegnere; sotto, lo storico Smart Stack da rivelare scorrendo.
-2. **Suono rilevato** — copre tutto con sfondo pieno colorato per gravità: tocca l'icona per il **Tracking sul Watch**, oppure premi **"📱 Localizza su iPhone"** per delegare la localizzazione all'iPhone.
+2. **Suono rilevato**: sheet nativa watchOS con X Liquid Glass, sfondo pieno colorato per gravità, emoji/icona grande e pulsante **"Sonar"**.
+3. **Sonar Watch**: stessa emoji/icona, onde concentriche sincronizzate alla vibrazione, tap sullo sfondo per uscire, chip **"Passa a iPhone →"** sotto il nome del suono per delegare la localizzazione all'iPhone.
 
 ---
 
@@ -85,10 +87,12 @@ L'app companion (`NotifEar/`) ha due tab — **Suoni** e **Storico** — più la
 ### ➕ Crea e registra
 - Crei un suono personalizzato (nome + categoria di gravità).
 - Registri **più campioni** dello stesso suono (da distanze e volumi diversi: più varietà = riconoscimento migliore), li riascolti, ne elimini singoli.
+- L'app impedisce nomi duplicati (ignorando maiuscole/minuscole e accenti), ferma una registrazione rimasta aperta quando esci dalla schermata e gestisce correttamente la sessione audio fra registrazione e playback.
 
 ### 🧪 Addestramento on-device
 - Pulsante **"Addestra e invia al Watch"**: addestra un classificatore con **Create ML Components** (iOS 16+) **direttamente sull'iPhone** (nessun Mac), lo compila in `.mlmodelc`, ne tiene una **copia locale** (per la modalità Sonar) e lo spedisce al Watch.
-- Servono **almeno 2 categorie/suoni**. Suggerimento: crea anche un suono **"rumore di fondo"** con campioni d'ambiente e tienilo **SPENTO** — serve come classe negativa per ridurre i falsi allarmi, ma non deve avvisare.
+- Servono **almeno 2 categorie/suoni** e **almeno 2 campioni validi per ogni suono**. Il bottone di addestramento resta disabilitato finché il dataset non è pronto e mostra un messaggio esplicativo.
+- Suggerimento: crea anche un suono **"rumore di fondo"** con campioni d'ambiente e tienilo **SPENTO** — serve come classe negativa per ridurre i falsi allarmi, ma non deve avvisare.
 
 ### 🔀 Sostituzione completa
 Ogni "Addestra e invia" **sostituisce integralmente** il modello e le preferenze (non si somma al precedente): i suoni eliminati spariscono davvero dal modello personalizzato.
@@ -97,7 +101,7 @@ Ogni "Addestra e invia" **sostituisce integralmente** il modello e le preferenze
 Per ogni suono c'è un toggle: se spento, il sistema **riconosce comunque** quel suono ma **non avvisa**. Le modifiche all'interruttore arrivano al Watch **subito**, senza riaddestrare.
 
 ### 🗂️ Storico
-I suoni rilevati dal Watch vengono inviati all'iPhone e raccolti nello **Storico**, raggruppati per sequenze consecutive, con colore della categoria e swipe-to-delete.
+I suoni rilevati dal Watch vengono inviati all'iPhone e raccolti nello **Storico**, raggruppati per sequenze consecutive, con colore della categoria, apertura dei gruppi, swipe-to-delete e cestino Liquid Glass in alto a destra per cancellare tutto.
 
 ### 🛡️ Anti falsi positivi (suoni custom)
 Il riconoscimento dei suoni personalizzati è volutamente conservativo: confidenza alta sulla classe vincente, distacco netto dalla seconda, **conferma sostenuta** su più finestre consecutive e cooldown tra due avvisi — così un picco isolato non fa scattare l'allarme.
@@ -109,10 +113,11 @@ Il riconoscimento dei suoni personalizzati è volutamente conservativo: confiden
 Localizzazione tattile di precisione, attivata **solo a chiamata** dal Watch (l'iPhone non ascolta mai da solo — la "sentinella" resta il Watch).
 
 **Flusso:**
-1. Sul Watch, sul suono riconosciuto, premi **"Localizza su iPhone"**.
-2. Il Watch invia all'iPhone il bersaglio (etichetta + chiavi di riconoscimento) via WatchConnectivity; l'iPhone (svegliato in background) posta una **notifica locale**.
-3. **Tocchi la notifica** → si apre a tutto schermo la schermata Sonar, già agganciata a quel suono.
-4. L'iPhone riconosce lo **stesso suono** (modello di sistema + copia locale del modello custom) e vibra.
+1. Sul Watch, sul suono riconosciuto, premi **"Sonar"**.
+2. Dentro il Sonar Watch, premi il chip **"Passa a iPhone →"**.
+3. Il Watch invia all'iPhone il bersaglio (etichetta + chiavi di riconoscimento) via WatchConnectivity; l'iPhone (svegliato in background) posta una **notifica locale**.
+4. **Tocchi la notifica** → si apre a tutto schermo la schermata Sonar, già agganciata a quel suono.
+5. L'iPhone riconosce lo **stesso suono** (modello di sistema + copia locale del modello custom) e vibra.
 
 **Vibrazione "a sensore di parcheggio"** (`UIImpactFeedbackGenerator`, controllo d'intensità granulare): **intensità e frequenza** degli impulsi crescono insieme col volume — suono debole → impulsi lievi e radi, suono vicino → impulsi forti e fitti. Ti sposti verso dove la vibrazione si fa più intensa/rapida.
 
@@ -139,7 +144,7 @@ iPhone                                               Watch
                                           ◄───────  4. al rilevamento: transferUserInfo(evento) → Storico
 
    ── Sonar (handoff) ──
-                                          ◄───────  premi "Localizza su iPhone": sendMessage(bersaglio)
+                                          ◄───────  apri Sonar Watch, poi "Passa a iPhone": sendMessage(bersaglio)
 5. notifica locale → tap → schermata Sonar
 6. fine sonar: sendMessage("sonarEnded") ───────►  riprende ad annunciare quel suono
 ```
@@ -156,9 +161,9 @@ Pattern **MVVM**. Il progetto Xcode `NotifEar.xcodeproj` contiene **due target**
 | File | Ruolo |
 |:---|:---|
 | `NotifEarApp.swift` | Entry point → `ContentView`. |
-| `ContentView.swift` | Schermata principale (stato d'ascolto) + storico Smart Stack sovrapposto + overlay del suono rilevato (tap icona → Tracking; pulsante "Localizza su iPhone"). |
+| `ContentView.swift` | Schermata principale (stato d'ascolto) + storico Smart Stack + sheet nativa del suono rilevato con X Liquid Glass e pulsante "Sonar". |
 | `SoundAnalyzerViewModel.swift` | Cuore: audio engine, classificatore di sistema + custom, categorie/colori/haptics, sessione estesa, notifiche, target del tracking, soppressione re-trigger. |
-| `TrackingService.swift` · `TrackingView.swift` | Modalità Tracking (sonar aptico) di un suono target: gating, auto-stop 5 s, ri-tocco per fermare. |
+| `TrackingService.swift` · `TrackingView.swift` | Modalità Tracking (sonar aptico) di un suono target: gating, auto-stop 5 s, X/tap sfondo/ri-tocco per fermare, chip "Passa a iPhone" per handoff. |
 | `HistoryStackView.swift` · `WatchHistoryStore.swift` | Storico locale "Smart Stack" (rivelato con la Corona) e relativo store minimale. |
 | `CustomModelStore.swift` | Salva/installa il modello custom (`.mlmodelc`) e ne crea la richiesta di classificazione. |
 | `CustomSoundConfigStore.swift` | Preferenze per-suono (avvisa sì/no + categoria) ricevute dall'iPhone. |
@@ -170,12 +175,12 @@ Pattern **MVVM**. Il progetto Xcode `NotifEar.xcodeproj` contiene **due target**
 |:---|:---|
 | `NotifEarPhoneApp.swift` | Entry point. `TabView` "Suoni" + "Storico"; presenta la schermata Sonar (overlay) sull'handoff. |
 | `PhoneRootView.swift` | Elenco suoni, toggle "Avvisa", swipe-elimina, "Addestra e invia", stato connessione; include `AddSoundView` e l'enum `SoundCategory`. |
-| `RecordSampleView.swift` | Registrazione, riascolto ed eliminazione dei campioni di un suono. |
-| `CustomSoundStore.swift` | Modello + persistenza dei suoni personalizzati e dei campioni. |
+| `RecordSampleView.swift` | Registrazione, riascolto ed eliminazione dei campioni di un suono, con cleanup automatico di registrazione/playback quando si esce. |
+| `CustomSoundStore.swift` | Modello + persistenza dei suoni personalizzati e dei campioni, validazione dataset, controllo duplicati e pruning dei file mancanti. |
 | `CustomSoundTrainer.swift` | Addestramento on-device (Create ML Components) e compilazione in `.mlmodelc`. |
 | `PhoneConnectivityManager.swift` | Lato iPhone di WatchConnectivity: invia modello/preferenze, riceve eventi e l'handoff del sonar, posta la notifica, segnala la fine sonar. |
-| `DetectionHistoryStore.swift` · `HistoryView.swift` | Storico dei rilevamenti ricevuti dal Watch. |
-| `SampleRecorder.swift` · `SamplePlayer.swift` | Registrazione e riproduzione audio dei campioni. |
+| `DetectionHistoryStore.swift` · `HistoryView.swift` | Storico dei rilevamenti ricevuti dal Watch, con gruppi consecutivi, eliminazione singola/per gruppo e cestino globale in toolbar. |
+| `SampleRecorder.swift` · `SamplePlayer.swift` | Registrazione e riproduzione audio dei campioni, gestione robusta della sessione audio e deactivation a fine uso. |
 | `ModelPackaging.swift` | Gemello del Watch: pacchettizzazione del modello. |
 | **Modalità Sonar:** | |
 | `SonarTarget.swift` | Il "bersaglio" del sonar (etichetta, icona, categoria, chiavi di gating), serializzabile per WatchConnectivity e notifica. |
@@ -183,7 +188,7 @@ Pattern **MVVM**. Il progetto Xcode `NotifEar.xcodeproj` contiene **due target**
 | `PhoneSoundRecognizer.swift` | Motore di riconoscimento iOS (sistema + custom): pubblica RMS e confidence del target per il gating. |
 | `PhoneSonarController.swift` | Gemello iOS di `TrackingService`: envelope/gating, calcola il `liveLevel` e pilota la vibrazione. |
 | `SonarHapticEngine.swift` | Vibrazione "a sensore di parcheggio" via `UIImpactFeedbackGenerator` (intensità + frequenza ∝ volume). |
-| `PhoneSonarView.swift` | UI della schermata Sonar (icona che pulsa col volume, onde, "muoviti per localizzare"). |
+| `PhoneSonarView.swift` | UI della schermata Sonar su iPhone (icona, onde, X e stop al ri-tocco). |
 
 ---
 
@@ -221,6 +226,7 @@ git update-index --assume-unchanged NotifEar.xcodeproj/project.pbxproj
 | Alert Watch: vibrazione per categoria + visivo + notifica | ✅ |
 | Tracking/sonar aptico sul Watch (intensità a preset) | ✅ |
 | Storico: completo su iPhone, "Smart Stack" sul Watch | ✅ |
+| Cancellazione completa dello storico da iPhone e Watch | ✅ |
 | **Sonar su iPhone** (handoff, vibrazione granulare "metal detector", auto-stop, anti re-trigger) | ✅ |
 
 ---

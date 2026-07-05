@@ -67,9 +67,26 @@ final class CustomSoundStore: ObservableObject {
 
     // MARK: - CRUD
 
-    func addSound(label: String, category: String) {
-        sounds.append(CustomSound(label: label, category: category))
+    var canTrain: Bool {
+        trainingReadinessMessage == nil
+    }
+
+    var trainingStatusText: String {
+        trainingReadinessMessage ?? "Pronto per addestrare: almeno 2 campioni per ciascun suono."
+    }
+
+    func addSound(label: String, category: String) -> Bool {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !containsLabel(trimmed) else { return false }
+        sounds.append(CustomSound(label: trimmed, category: category))
         save()
+        return true
+    }
+
+    func containsLabel(_ label: String) -> Bool {
+        let normalized = Self.normalizedLabel(label)
+        guard !normalized.isEmpty else { return false }
+        return sounds.contains { Self.normalizedLabel($0.label) == normalized }
     }
 
     func deleteSound(_ sound: CustomSound) {
@@ -127,8 +144,44 @@ final class CustomSoundStore: ObservableObject {
     /// Tutte le coppie (file audio, etichetta), pronte per l'addestramento.
     func trainingPairs() -> [(url: URL, label: String)] {
         sounds.flatMap { sound in
-            sound.sampleFileNames.map { (samplesDirectory.appendingPathComponent($0), sound.label) }
+            sound.sampleFileNames.compactMap { name in
+                let url = samplesDirectory.appendingPathComponent(name)
+                guard fm.fileExists(atPath: url.path) else { return nil }
+                return (url, sound.label)
+            }
         }
+    }
+
+    private var trainingReadinessMessage: String? {
+        guard sounds.count >= 2 else {
+            return "Servono almeno 2 categorie di suono. Aggiungi anche un rumore di fondo per ridurre i falsi allarmi."
+        }
+
+        let normalizedLabels = sounds.map { Self.normalizedLabel($0.label) }
+        guard Set(normalizedLabels).count == normalizedLabels.count else {
+            return "Ci sono suoni con lo stesso nome. Elimina il duplicato prima di addestrare."
+        }
+
+        let missingSamples = sounds.filter { sound in
+            validSampleCount(for: sound) < 2
+        }
+        guard missingSamples.isEmpty else {
+            let label = missingSamples.first?.label ?? "un suono"
+            return "Registra almeno 2 campioni per ogni suono. Mancano campioni per \"\(label)\"."
+        }
+
+        return nil
+    }
+
+    private func validSampleCount(for sound: CustomSound) -> Int {
+        sound.sampleFileNames.filter { name in
+            fm.fileExists(atPath: samplesDirectory.appendingPathComponent(name).path)
+        }.count
+    }
+
+    private static func normalizedLabel(_ label: String) -> String {
+        label.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
     // MARK: - Persistenza

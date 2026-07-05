@@ -118,7 +118,7 @@ struct PhoneRootView: View {
                             if trainingState == .training { ProgressView() }
                         }
                     }
-                    .disabled(trainingState == .training || store.sounds.count < 2)
+                    .disabled(trainingState == .training || !store.canTrain)
 
                     switch trainingState {
                     case .done(let msg):   Text(msg).font(.caption).foregroundStyle(.green)
@@ -126,7 +126,7 @@ struct PhoneRootView: View {
                     default:               EmptyView()
                     }
                 } footer: {
-                    Text("Servono almeno 2 categorie di suono. Suggerimento: crea anche un suono \"rumore di fondo\" con campioni d'ambiente, per ridurre i falsi allarmi.")
+                    Text(store.trainingStatusText)
                 }
             }
             .navigationTitle("NotifEar")
@@ -147,6 +147,10 @@ struct PhoneRootView: View {
 
     private func trainAndSend() async {
         trainingState = .training
+        guard store.canTrain else {
+            trainingState = .failed(store.trainingStatusText)
+            return
+        }
         guard #available(iOS 16.0, *) else {
             trainingState = .failed("Richiede iOS 16 o successivo."); return
         }
@@ -178,7 +182,15 @@ struct AddSoundView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Nome del suono (es. Citofono)", text: $label)
+                Section {
+                    TextField("Nome del suono (es. Citofono)", text: $label)
+                } footer: {
+                    if store.containsLabel(trimmedLabel) {
+                        Text("Esiste già un suono con questo nome.")
+                            .foregroundStyle(.red)
+                    }
+                }
+
                 Picker("Categoria", selection: $category) {
                     ForEach(SoundCategory.allCases) { cat in
                         HStack {
@@ -194,16 +206,22 @@ struct AddSoundView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Salva") {
-                        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmed = trimmedLabel
                         guard !trimmed.isEmpty else { return }
-                        store.addSound(label: trimmed, category: category)
-                        dismiss()
+                        if store.addSound(label: trimmed, category: category) {
+                            dismiss()
+                        }
                     }
+                    .disabled(trimmedLabel.isEmpty || store.containsLabel(trimmedLabel))
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Annulla") { dismiss() }
                 }
             }
         }
+    }
+
+    private var trimmedLabel: String {
+        label.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

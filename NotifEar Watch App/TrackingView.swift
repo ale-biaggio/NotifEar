@@ -4,13 +4,13 @@
 //
 //  UI della modalità Tracking. Presentata come `.sheet` da ContentView quando l'utente
 //  tocca il tile di un suono riconosciuto. Mostra:
-//   - emoji/icona grande del suono che ha innescato il tracking (scala col volume) +
-//     sfondo e cerchi concentrici che pulsano in sincrono con l'intensità haptic
+//   - emoji/icona grande del suono che ha innescato il tracking, con sfondo e cerchi
+//     concentrici che pulsano in sincrono con l'intensità haptic
 //   - nome del suono
 //
-//  Per uscire si usa la chiusura nativa del foglio (X in alto a sinistra): alla
-//  dismissione `onDisappear` ferma il tracking. Si chiude da sola anche se il
-//  tracking torna idle.
+//  Per uscire si usa la chiusura nativa del foglio (X in alto a sinistra), oppure
+//  un tap sullo sfondo: alla dismissione `onDisappear` ferma il tracking. Si chiude
+//  da sola anche se il tracking torna idle.
 //
 //  L'haptic è gestito dal `TrackingService` (vibrazione continua modulata dal volume
 //  audio istante per istante). La view si limita a:
@@ -32,21 +32,20 @@ struct TrackingView: View {
     /// via `tracker.pulseCounter`: spawnato esattamente quando esce un colpetto.
     @State private var activePulses: [UUID] = []
 
-    /// Suggerimento visivo "muoviti" mostrato all'avvio del sonar. Per localizzare la
-    /// sorgente l'utente deve spostarsi e cercare la direzione in cui la vibrazione si
-    /// fa più intensa: la vibrazione da sola non indica il verso. Compare all'apparire
-    /// della view e svanisce da solo dopo qualche secondo (`movePromptDuration`).
-    @State private var showMovePrompt = true
-
-    /// Per quanto resta a schermo il suggerimento "muoviti" prima di dissolversi.
-    private static let movePromptDuration: TimeInterval = 4
+    /// Evita che il tap usato per aprire il Sonar venga interpretato subito come tap sullo
+    /// sfondo della nuova sheet, chiudendola appena compare.
+    @State private var backgroundDismissEnabled = false
 
     var body: some View {
         ZStack {
             backgroundPulse
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if backgroundDismissEnabled { dismiss() }
+                }
 
-            VStack(spacing: 10) {
-                Spacer(minLength: 4)
+            VStack(spacing: 7) {
+                Spacer(minLength: 0)
 
                 ZStack {
                     ForEach(activePulses, id: \.self) { id in
@@ -65,8 +64,6 @@ struct TrackingView: View {
                                 .font(.system(size: 80))
                         }
                     }
-                    .scaleEffect(1.0 + 0.15 * CGFloat(tracker.liveLevel))
-                    .animation(.easeOut(duration: 0.08), value: tracker.liveLevel)
                     // Ri-tocco dell'emoji → ferma il sonar (chiude il foglio).
                     .contentShape(Rectangle())
                     .onTapGesture { dismiss() }
@@ -79,16 +76,18 @@ struct TrackingView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
 
-                Spacer(minLength: 4)
+                phoneHandoffButton
+                    .padding(.top, 2)
+
+                Spacer(minLength: 8)
             }
             .padding(.vertical, 6)
         }
-        .overlay(alignment: .bottom) {
-            if showMovePrompt { movePrompt }
-        }
+        .persistentSystemOverlays(.hidden)
         .onAppear {
+            backgroundDismissEnabled = false
             tracker.startTracking(target: target)
-            scheduleMovePromptDismiss()
+            scheduleBackgroundDismissEnable()
         }
         .onDisappear { tracker.stopTracking() }
         .onChange(of: tracker.state) { _, newState in
@@ -101,36 +100,64 @@ struct TrackingView: View {
     }
 
     // Nessun pulsante Stop: si esce dal foglio con la chiusura nativa (X in alto a
-    // sinistra) e `onDisappear` ferma il tracking.
+    // sinistra), oppure toccando lo sfondo. `onDisappear` ferma il tracking.
 
-    // MARK: - Suggerimento "muoviti"
-
-    /// Banner in basso con figura che cammina: invita l'utente a spostarsi per capire
-    /// da che parte è la sorgente (la vibrazione cresce avvicinandosi). È solo un aiuto
-    /// iniziale, quindi si dissolve da solo dopo `movePromptDuration`.
-    private var movePrompt: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "figure.walk")
-                .font(.system(size: 13, weight: .semibold))
-                .symbolEffect(.wiggle, options: .repeating)
-            Text("Muoviti per localizzare")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+    private func scheduleBackgroundDismissEnable() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            backgroundDismissEnabled = true
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.ultraThinMaterial, in: Capsule())
-        .padding(.bottom, 6)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
-    /// Programma la sparizione del suggerimento "muoviti" dopo `movePromptDuration`.
-    private func scheduleMovePromptDismiss() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.movePromptDuration) {
-            withAnimation(.easeOut(duration: 0.4)) { showMovePrompt = false }
+    // MARK: - Handoff iPhone
+
+    /// Disponibile solo dopo l'ingresso nel Sonar sul Watch: passa la localizzazione
+    /// all'iPhone e chiude il foglio corrente.
+    private var phoneHandoffButton: some View {
+        Button {
+            requestPhoneSonar()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "iphone.radiowaves.left.and.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+
+                Text("Passa a iPhone")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 11, weight: .bold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .frame(width: 154, height: 34)
+            .background(.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .glassEffect(.regular.tint(.cyan.opacity(0.18)).interactive(), in: .rect(cornerRadius: 12))
+            .shadow(color: .cyan.opacity(0.20), radius: 6, y: 2)
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Passa a iPhone")
+    }
+
+    private func requestPhoneSonar() {
+        let ids = Array(viewModel.identifiers(matching: target))
+        viewModel.setSonarSuppression(identifiers: ids, customLabel: target.customIdentifier)
+        tracker.stopTracking()
+        WatchModelReceiver.shared.requestSonarOnPhone(
+            label: target.label,
+            category: target.category.rawValue,
+            iconName: target.iconName,
+            isSystemIcon: target.isSystemIcon,
+            identifiers: ids,
+            customLabel: target.customIdentifier
+        )
+        dismiss()
     }
 
     // MARK: - Sfondo che pulsa col livello

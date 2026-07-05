@@ -52,20 +52,17 @@ struct HistoryView: View {
                                 }
                             }
                         }
-
-                        Section {
-                            Button(role: .destructive) {
-                                confirmClearAll = true
-                            } label: {
-                                Text("Cancella tutto")
-                                    .frame(maxWidth: .infinity)
-                                    .fontWeight(.semibold)
-                            }
-                        }
                     }
                 }
             }
             .navigationTitle("Storico")
+            .toolbar {
+                if !history.events.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        clearHistoryToolbarButton
+                    }
+                }
+            }
             .confirmationDialog("Cancellare tutto lo storico?",
                                 isPresented: $confirmClearAll, titleVisibility: .visible) {
                 Button("Cancella tutto", role: .destructive) { history.clear() }
@@ -75,6 +72,22 @@ struct HistoryView: View {
     }
 
     // MARK: - Righe
+
+    @ViewBuilder
+    private var clearHistoryToolbarButton: some View {
+        Button {
+            confirmClearAll = true
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.red)
+                .frame(width: 38, height: 38)
+                .contentShape(Circle())
+                .modifier(GlassTrashButton())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Cancella tutto lo storico")
+    }
 
     @ViewBuilder
     private func headerRow(_ run: DetectionRun) -> some View {
@@ -177,6 +190,18 @@ struct HistoryView: View {
         case "danger":    return "exclamationmark.octagon.fill"
         case "home":      return "house.fill"
         default:          return "waveform"
+        }
+    }
+}
+
+private struct GlassTrashButton: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .glassEffect(.regular.tint(.red.opacity(0.18)).interactive(), in: .circle)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: Circle())
         }
     }
 }

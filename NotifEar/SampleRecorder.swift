@@ -32,6 +32,7 @@ final class SampleRecorder: NSObject, ObservableObject {
     }
 
     func startRecording(to url: URL) {
+        if isRecording { stopRecording() }
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.record, mode: .measurement)
@@ -45,11 +46,13 @@ final class SampleRecorder: NSObject, ObservableObject {
                 AVLinearPCMIsBigEndianKey: false
             ]
             let r = try AVAudioRecorder(url: url, settings: settings)
-            r.record()
+            guard r.record() else { throw RecorderError.couldNotStart }
             recorder = r
             isRecording = true
         } catch {
+            recorder = nil
             isRecording = false
+            try? session.setActive(false, options: [.notifyOthersOnDeactivation])
         }
     }
 
@@ -57,6 +60,10 @@ final class SampleRecorder: NSObject, ObservableObject {
         recorder?.stop()
         recorder = nil
         isRecording = false
-        try? AVAudioSession.sharedInstance().setActive(false)
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
+}
+
+private enum RecorderError: Error {
+    case couldNotStart
 }

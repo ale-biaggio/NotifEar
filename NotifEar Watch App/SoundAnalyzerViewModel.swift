@@ -491,20 +491,30 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     func setTrackingTarget(for info: SoundInfo) {
         let builtIn = identifiers(matching: info)
         let custom: Set<String> = info.customIdentifier.map { [$0] } ?? []
-        DispatchQueue.main.async {
+        let update = {
             self.trackingTargetIdentifiers = builtIn
             self.trackingCustomLabels = custom
             self.currentTargetConfidence = 0
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
         }
     }
 
     /// Termina il tracking: nessun identifier target (di sistema o custom) →
     /// `currentTargetConfidence` resta a 0.
     func clearTrackingTarget() {
-        DispatchQueue.main.async {
+        let update = {
             self.trackingTargetIdentifiers = []
             self.trackingCustomLabels = []
             self.currentTargetConfidence = 0
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
         }
     }
 
@@ -515,7 +525,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     /// L'iPhone ha iniziato a localizzare un suono (handoff): finché dura, il Watch non lo
     /// ri-annuncia. Timeout di sicurezza nel caso il messaggio di fine non arrivi.
     func setSonarSuppression(identifiers: [String], customLabel: String?) {
-        DispatchQueue.main.async {
+        let update = {
             self.sonarSuppressedIdentifiers = Set(identifiers)
             self.sonarSuppressedCustomLabels = customLabel.map { [$0] } ?? []
             self.sonarSuppressionTimer?.invalidate()
@@ -523,15 +533,25 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
                 self?.clearSonarSuppression()
             }
         }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
+        }
     }
 
     /// L'iPhone ha terminato il sonar (o timeout): il Watch torna ad avvisare per quel suono.
     func clearSonarSuppression() {
-        DispatchQueue.main.async {
+        let update = {
             self.sonarSuppressedIdentifiers = []
             self.sonarSuppressedCustomLabels = []
             self.sonarSuppressionTimer?.invalidate()
             self.sonarSuppressionTimer = nil
+        }
+        if Thread.isMainThread {
+            update()
+        } else {
+            DispatchQueue.main.async(execute: update)
         }
     }
 

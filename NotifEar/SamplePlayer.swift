@@ -24,14 +24,17 @@ final class SamplePlayer: NSObject, ObservableObject {
 
     func play(_ url: URL) {
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback)
-            try AVAudioSession.sharedInstance().setActive(true)
+            stop()
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback)
+            try session.setActive(true)
             let p = try AVAudioPlayer(contentsOf: url)
             p.delegate = self
             p.play()
             player = p
             playingURL = url
         } catch {
+            deactivateSession()
             playingURL = nil
         }
     }
@@ -40,11 +43,22 @@ final class SamplePlayer: NSObject, ObservableObject {
         player?.stop()
         player = nil
         playingURL = nil
+        deactivateSession()
+    }
+
+    private func finishPlayback() {
+        player = nil
+        playingURL = nil
+        deactivateSession()
+    }
+
+    private func deactivateSession() {
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 }
 
 extension SamplePlayer: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.playingURL = nil }
+        Task { @MainActor in self.finishPlayback() }
     }
 }

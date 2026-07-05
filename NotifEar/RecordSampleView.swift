@@ -91,7 +91,7 @@ struct RecordSampleView: View {
         .navigationTitle(sound.label)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { recorder.requestPermission() }
-        .onDisappear { player.stop() }
+        .onDisappear { cleanupOnDisappear() }
     }
 
     private static let itLocale = Locale(identifier: "it_IT")
@@ -134,5 +134,11 @@ struct RecordSampleView: View {
             store.registerSample(fileName: url.lastPathComponent, for: sound.id)
         }
         currentURL = nil
+    }
+
+    private func cleanupOnDisappear() {
+        player.stop()
+        guard recorder.isRecording else { return }
+        stop()
     }
 }
