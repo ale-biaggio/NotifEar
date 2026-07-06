@@ -1,11 +1,3 @@
-//
-//  RecordSampleView.swift
-//  NotifEar (iPhone companion)
-//
-//  Schermata di un suono: registrazione di nuovi campioni + elenco dei campioni già
-//  registrati, con riascolto ed eliminazione. Usa solo i dati già presenti
-//  (nomi file in `sampleFileNames` + i WAV su disco): nessun dato aggiuntivo salvato.
-//
 
 import SwiftUI
 import AVFoundation
@@ -18,13 +10,11 @@ struct RecordSampleView: View {
 
     @State private var currentURL: URL?
 
-    // Lo store è la fonte di verità: leggo sempre la versione aggiornata del suono.
     private var currentSound: CustomSound { store.sound(for: sound.id) ?? sound }
     private var samples: [String] { currentSound.sampleFileNames }
 
     var body: some View {
         List {
-            // MARK: Registrazione
             Section {
                 VStack(spacing: 16) {
                     Text("\(samples.count) campioni registrati")
@@ -54,7 +44,6 @@ struct RecordSampleView: View {
                 .listRowBackground(Color.clear)
             }
 
-            // MARK: Campioni registrati (riascolto / elimina)
             if !samples.isEmpty {
                 Section("Campioni registrati") {
                     ForEach(Array(samples.enumerated()), id: \.element) { index, name in
@@ -96,7 +85,6 @@ struct RecordSampleView: View {
 
     private static let itLocale = Locale(identifier: "it_IT")
 
-    /// Durata di un campione, letta dal file audio (nessun dato aggiuntivo salvato).
     private func sampleDuration(_ url: URL) -> TimeInterval? {
         guard let file = try? AVAudioFile(forReading: url) else { return nil }
         let sr = file.processingFormat.sampleRate
@@ -104,7 +92,6 @@ struct RecordSampleView: View {
         return Double(file.length) / sr
     }
 
-    /// Riga di dettaglio del campione: "10,2 s · 12 nov 14:30".
     private func detailText(_ url: URL) -> String {
         var parts: [String] = []
         if let dur = sampleDuration(url) {

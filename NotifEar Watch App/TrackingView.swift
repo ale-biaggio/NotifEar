@@ -1,23 +1,3 @@
-//
-//  TrackingView.swift
-//  NotifEar Watch App
-//
-//  UI della modalità Tracking. Presentata come `.sheet` da ContentView quando l'utente
-//  tocca il tile di un suono riconosciuto. Mostra:
-//   - emoji/icona grande del suono che ha innescato il tracking, con sfondo e cerchi
-//     concentrici che pulsano in sincrono con l'intensità haptic
-//   - nome del suono
-//
-//  Per uscire si usa la chiusura nativa del foglio (X in alto a sinistra), oppure
-//  un tap sullo sfondo: alla dismissione `onDisappear` ferma il tracking. Si chiude
-//  da sola anche se il tracking torna idle.
-//
-//  L'haptic è gestito dal `TrackingService` (vibrazione continua modulata dal volume
-//  audio istante per istante). La view si limita a:
-//   - chiamare `startTracking` in onAppear / `stopTracking` in onDisappear
-//   - leggere `tracker.liveLevel` (lo stesso valore che pilota l'intensità haptic) per
-//     dare un feedback visivo coerente con la vibrazione percepita.
-//
 
 import SwiftUI
 
@@ -27,13 +7,8 @@ struct TrackingView: View {
     @ObservedObject var viewModel: SoundAnalyzerViewModel
     @Environment(\.dismiss) private var dismiss
 
-    /// Pulsazioni visive in volo. Ogni elemento è un cerchio che si espande dall'emoji
-    /// e svanisce; quando l'animazione finisce viene rimosso. Sincronizzato con l'haptic
-    /// via `tracker.pulseCounter`: spawnato esattamente quando esce un colpetto.
     @State private var activePulses: [UUID] = []
 
-    /// Evita che il tap usato per aprire il Sonar venga interpretato subito come tap sullo
-    /// sfondo della nuova sheet, chiudendola appena compare.
     @State private var backgroundDismissEnabled = false
 
     var body: some View {
@@ -64,7 +39,6 @@ struct TrackingView: View {
                                 .font(.system(size: 80))
                         }
                     }
-                    // Ri-tocco dell'emoji → ferma il sonar (chiude il foglio).
                     .contentShape(Rectangle())
                     .onTapGesture { dismiss() }
                 }
@@ -94,13 +68,10 @@ struct TrackingView: View {
             if case .idle = newState { dismiss() }
         }
         .onChange(of: tracker.pulseCounter) { _, _ in
-            // Ogni colpetto emesso dal service → un cerchio che si espande dall'emoji.
             activePulses.append(UUID())
         }
     }
 
-    // Nessun pulsante Stop: si esce dal foglio con la chiusura nativa (X in alto a
-    // sinistra), oppure toccando lo sfondo. `onDisappear` ferma il tracking.
 
     private func scheduleBackgroundDismissEnable() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
@@ -110,8 +81,6 @@ struct TrackingView: View {
 
     // MARK: - Handoff iPhone
 
-    /// Disponibile solo dopo l'ingresso nel Sonar sul Watch: passa la localizzazione
-    /// all'iPhone e chiude il foglio corrente.
     private var phoneHandoffButton: some View {
         Button {
             requestPhoneSonar()
@@ -160,7 +129,7 @@ struct TrackingView: View {
         dismiss()
     }
 
-    // MARK: - Sfondo che pulsa col livello
+    // MARK: - Background
 
     private var backgroundPulse: some View {
         let level = Double(tracker.liveLevel)
@@ -179,11 +148,6 @@ struct TrackingView: View {
 
 // MARK: - ExpandingRing
 
-/// Singolo cerchio di pulsazione: parte poco più grande dell'emoji, si espande e
-/// svanisce in ~0.8 s. Al termine chiama `onComplete` per essere rimosso dalla lista
-/// del parent. Più cerchi possono coesistere: ai volumi alti il sonar emette fino a
-/// 10 colpetti al secondo, e il cerchio si dissolve in ~800 ms → fino a ~8 cerchi
-/// sovrapposti contemporaneamente.
 private struct ExpandingRing: View {
     let color: Color
     let onComplete: () -> Void

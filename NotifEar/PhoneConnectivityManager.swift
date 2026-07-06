@@ -1,10 +1,3 @@
-//
-//  PhoneConnectivityManager.swift
-//  NotifEar (iPhone companion)
-//
-//  Lato iPhone di WatchConnectivity: impacchetta il modello compilato e lo
-//  spedisce al Watch con `transferFile` (consegna in background, in coda).
-//
 
 import Foundation
 import WatchConnectivity
@@ -14,7 +7,6 @@ import UserNotifications
 final class PhoneConnectivityManager: NSObject, ObservableObject {
     static let shared = PhoneConnectivityManager()
 
-    /// Identificatore della categoria di notifica usata per l'handoff del sonar.
     static let sonarNotificationCategory = "NotifEarSonar"
 
     @Published var isPaired = false
@@ -22,13 +14,8 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
     @Published var isWatchAppInstalled = false
     @Published var lastTransferState = "—"
 
-    /// Bersaglio del sonar da mostrare. La root lo osserva e, finché è non-nil, mostra
-    /// `PhoneSonarView` come overlay a tutto schermo (NON un `fullScreenCover`: un foglio
-    /// presentato all'apertura da notifica veniva chiuso dal sistema dopo un istante).
-    /// L'unico modo per chiuderlo è `dismissSonar()` (il pulsante X).
     @Published var pendingSonarTarget: SonarTarget?
 
-    /// Invocato (su main) per ogni suono rilevato dal Watch. Lo collega lo storico.
     var onDetectionReceived: ((DetectedEvent) -> Void)?
 
     private override init() {
@@ -39,18 +26,14 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
         s.activate()
     }
 
-    /// Da chiamare all'avvio dell'app: registra il delegate delle notifiche e chiede il
-    /// permesso (serve per mostrare la notifica di handoff del sonar e aprirne la schermata).
     func configureNotifications() {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    // MARK: - Handoff Sonar (dal Watch)
+    // MARK: - Sonar Handoff
 
-    /// Costruisce il bersaglio dal payload ricevuto e posta una notifica locale che, al
-    /// tap, aprirà la schermata Sonar.
     private func handleSonarHandoff(_ payload: [String: Any]) {
         guard let target = SonarTarget(payload: payload) else { return }
         let content = UNMutableNotificationContent()
@@ -62,19 +45,17 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
         let request = UNNotificationRequest(
             identifier: "sonar_\(target.id)",
             content: content,
-            trigger: nil // immediata
+            trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
     }
 
-    /// Smista un messaggio in arrivo dal Watch (sendMessage o transferUserInfo).
     private func routeIncoming(_ dict: [String: Any]) {
         if (dict["kind"] as? String) == SonarTarget.messageKind {
             handleSonarHandoff(dict)
         }
     }
 
-    /// Ricostruisce un `SonarTarget` dallo `userInfo` di una notifica ([AnyHashable: Any]).
     private func sonarTarget(fromUserInfo userInfo: [AnyHashable: Any]) -> SonarTarget? {
         var dict: [String: Any] = [:]
         for (key, value) in userInfo {
@@ -83,22 +64,17 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
         return SonarTarget(payload: dict)
     }
 
-    // MARK: - Presentazione del Sonar (overlay condizionale, non un foglio)
+    // MARK: - Sonar Presentation
 
-    /// Mostra il sonar sul bersaglio dato. La root lo presenta come overlay condizionale,
-    /// quindi non serve gating sullo stato di scena: resta finché non viene chiuso.
     private func presentSonar(_ target: SonarTarget) {
         DispatchQueue.main.async { self.pendingSonarTarget = target }
     }
 
-    /// Il sonar sull'iPhone è finito (X, ri-tocco emoji, o auto-stop): rimuove l'overlay e
-    /// avvisa il Watch così riprende ad annunciare quel suono.
     func dismissSonar() {
         pendingSonarTarget = nil
         sendSonarEnded()
     }
 
-    /// Notifica al Watch che il sonar sull'iPhone è terminato.
     private func sendSonarEnded() {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
@@ -113,9 +89,6 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
         }
     }
 
-    /// Invia SOLO le preferenze (quali suoni avvisano) al volo, senza riaddestrare.
-    /// Usa l'application context: l'ultimo stato sovrascrive il precedente e arriva al
-    /// Watch appena raggiungibile.
     func sendConfig(_ config: [String: [String: Any]]) {
         guard WCSession.isSupported() else { return }
         let session = WCSession.default
@@ -128,7 +101,6 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
         }
     }
 
-    /// Impacchetta la directory `.mlmodelc` e la invia al Watch, insieme alle preferenze.
     func sendModel(compiledModelURL: URL, config: [String: [String: Any]]) {
         guard WCSession.isSupported() else {
             setState("WatchConnectivity non disponibile su questo dispositivo")
@@ -136,7 +108,6 @@ final class PhoneConnectivityManager: NSObject, ObservableObject {
         }
         let session = WCSession.default
 
-        // Pre-controlli: senza questi, transferFile fallisce con errori poco chiari.
         guard session.activationState == .activated else {
             setState("Sessione Watch non ancora attiva — riprova tra un istante")
             session.activate()
@@ -186,8 +157,6 @@ extension PhoneConnectivityManager: WCSessionDelegate {
         }
     }
 
-    /// Handoff del sonar in tempo reale: il Watch usa `sendMessage` (sveglia l'app iPhone
-    /// in background) quando è raggiungibile.
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         routeIncoming(message)
     }
@@ -198,8 +167,6 @@ extension PhoneConnectivityManager: WCSessionDelegate {
         replyHandler(["ok": true])
     }
 
-    /// Riceve gli eventi di rilevamento (storico) e il fallback dell'handoff sonar
-    /// (`transferUserInfo`, quando l'iPhone non era raggiungibile per `sendMessage`).
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
         let kind = userInfo["kind"] as? String
         if kind == SonarTarget.messageKind {
@@ -217,7 +184,6 @@ extension PhoneConnectivityManager: WCSessionDelegate {
     func sessionDidBecomeInactive(_ session: WCSession) {}
 
     func sessionDidDeactivate(_ session: WCSession) {
-        // Riattiva per supportare il cambio di Watch abbinato.
         session.activate()
     }
 
@@ -231,11 +197,10 @@ extension PhoneConnectivityManager: WCSessionDelegate {
     }
 }
 
-// MARK: - UNUserNotificationCenterDelegate (apertura del sonar dalla notifica)
+// MARK: - UNUserNotificationCenterDelegate
 
 extension PhoneConnectivityManager: UNUserNotificationCenterDelegate {
 
-    /// App in foreground quando arriva l'handoff: niente banner, apriamo subito il sonar.
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
@@ -247,7 +212,6 @@ extension PhoneConnectivityManager: UNUserNotificationCenterDelegate {
         }
     }
 
-    /// L'utente ha toccato la notifica (da background/lock screen): apri il sonar.
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {

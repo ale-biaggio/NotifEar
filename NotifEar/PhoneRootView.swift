@@ -1,17 +1,6 @@
-//
-//  PhoneRootView.swift
-//  NotifEar (iPhone companion)
-//
-//  UI principale: elenco dei suoni personalizzati, aggiunta di un suono,
-//  registrazione campioni, e pulsante "Addestra e invia al Watch".
-//
 
 import SwiftUI
 
-/// Le 4 categorie di gravità di un suono, in ordine crescente (verde → rosso).
-/// Il `rawValue` ("attention"…"emergency") è la chiave salvata nel catalogo e inviata al
-/// Watch: NON va cambiata. `title` e `color` sono solo presentazione e vanno tenuti
-/// allineati all'enum `SoundCategory` lato Watch.
 enum SoundCategory: String, CaseIterable, Identifiable {
     case attention, home, danger, emergency
 
@@ -26,7 +15,6 @@ enum SoundCategory: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Colore proporzionale alla gravità: verde (lieve) → rosso (massima).
     var color: Color {
         switch self {
         case .attention: return .green
@@ -36,9 +24,7 @@ enum SoundCategory: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Nome leggibile a partire dal rawValue salvato (fallback robusto su valori ignoti).
     static func title(for raw: String) -> String { SoundCategory(rawValue: raw)?.title ?? raw.capitalized }
-    /// Colore a partire dal rawValue salvato.
     static func color(for raw: String) -> Color { SoundCategory(rawValue: raw)?.color ?? .gray }
 }
 
@@ -159,9 +145,6 @@ struct PhoneRootView: View {
             let work = FileManager.default.temporaryDirectory
                 .appendingPathComponent("training", isDirectory: true)
             let compiled = try await CustomSoundTrainer.train(pairs: pairs, workDirectory: work)
-            // Copia locale sull'iPhone: serve alla modalità Sonar per riconoscere i suoni
-            // custom con lo STESSO modello che spediamo al Watch. Best-effort: se fallisce,
-            // il Sonar userà comunque il classificatore di sistema.
             try? PhoneCustomModelStore.shared.install(from: compiled)
             connectivity.sendModel(compiledModelURL: compiled, config: store.configPayload())
             trainingState = .done("Modello addestrato e messo in invio al Watch.")
@@ -171,7 +154,6 @@ struct PhoneRootView: View {
     }
 }
 
-/// Foglio per creare un nuovo suono personalizzato.
 struct AddSoundView: View {
     @EnvironmentObject var store: CustomSoundStore
     @Environment(\.dismiss) private var dismiss

@@ -1,10 +1,3 @@
-//
-//  SamplePlayer.swift
-//  NotifEar (iPhone companion)
-//
-//  Riproduce i file WAV dei campioni registrati, per riascoltarli prima di
-//  addestrare. Usa i file già su disco: nessun dato aggiuntivo da salvare.
-//
 
 import Foundation
 import AVFoundation
@@ -12,12 +5,10 @@ import Combine
 
 @MainActor
 final class SamplePlayer: NSObject, ObservableObject {
-    /// URL del campione attualmente in riproduzione (nil se fermo).
     @Published var playingURL: URL?
 
     private var player: AVAudioPlayer?
 
-    /// Avvia il campione, o lo ferma se è già quello in riproduzione.
     func toggle(_ url: URL) {
         if playingURL == url { stop() } else { play(url) }
     }

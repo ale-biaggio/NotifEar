@@ -1,23 +1,12 @@
-//
-//  CustomSoundStore.swift
-//  NotifEar (iPhone companion)
-//
-//  Modello + persistenza dei suoni personalizzati che l'utente vuole insegnare.
-//  Ogni suono ha un'etichetta, una categoria (che mappa alle SoundCategory del
-//  Watch) e una lista di file audio campione registrati dal microfono.
-//
 
 import Foundation
 import Combine
 
-/// Un suono personalizzato definito dall'utente.
 struct CustomSound: Identifiable, Codable, Equatable, Hashable {
     var id: UUID = UUID()
-    var label: String                  // es. "Citofono di casa"
-    var category: String               // "emergency" | "danger" | "home" | "attention"
-    var sampleFileNames: [String] = [] // file .wav nella cartella campioni
-    /// Se false, il Watch riconosce comunque il suono ma NON avvisa. Utile per la
-    /// classe "rumore di fondo": serve ad addestrare, ma non deve generare allarmi.
+    var label: String
+    var category: String
+    var sampleFileNames: [String] = []
     var isEnabled: Bool = true
 
     enum CodingKeys: String, CodingKey { case id, label, category, sampleFileNames, isEnabled }
@@ -31,8 +20,6 @@ struct CustomSound: Identifiable, Codable, Equatable, Hashable {
         self.isEnabled = isEnabled
     }
 
-    // Decodifica tollerante: i cataloghi salvati prima dell'aggiunta di `isEnabled`
-    // restano validi (default = true).
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
@@ -51,14 +38,13 @@ final class CustomSoundStore: ObservableObject {
 
     init() { load() }
 
-    // MARK: - Percorsi
+    // MARK: - Paths
 
     private var documents: URL {
         fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     private var catalogURL: URL { documents.appendingPathComponent("custom_sounds.json") }
 
-    /// Cartella che contiene tutti i file audio campione.
     var samplesDirectory: URL {
         let url = documents.appendingPathComponent("samples", isDirectory: true)
         try? fm.createDirectory(at: url, withIntermediateDirectories: true)
@@ -103,14 +89,12 @@ final class CustomSoundStore: ObservableObject {
         save()
     }
 
-    /// Attiva/disattiva l'avviso per un suono (resta nel modello, ma non allarma).
     func setEnabled(_ sound: CustomSound, _ enabled: Bool) {
         guard let idx = sounds.firstIndex(where: { $0.id == sound.id }) else { return }
         sounds[idx].isEnabled = enabled
         save()
     }
 
-    /// Configurazione da inviare al Watch: per ogni etichetta, se avvisare e con quale categoria.
     func configPayload() -> [String: [String: Any]] {
         var dict: [String: [String: Any]] = [:]
         for s in sounds {
@@ -119,21 +103,17 @@ final class CustomSoundStore: ObservableObject {
         return dict
     }
 
-    /// URL per un nuovo file campione del suono indicato.
     func newSampleURL(for sound: CustomSound) -> URL {
         let name = "\(sound.id.uuidString)_\(UUID().uuidString).wav"
         return samplesDirectory.appendingPathComponent(name)
     }
 
-    /// URL su disco di un campione dato il suo nome file.
     func sampleURL(named name: String) -> URL {
         samplesDirectory.appendingPathComponent(name)
     }
 
-    /// Versione aggiornata di un suono (lo store è la fonte di verità).
     func sound(for id: UUID) -> CustomSound? { sounds.first { $0.id == id } }
 
-    /// Elimina un singolo campione: il file su disco e il suo riferimento.
     func deleteSample(named name: String, from soundID: UUID) {
         guard let idx = sounds.firstIndex(where: { $0.id == soundID }) else { return }
         try? fm.removeItem(at: samplesDirectory.appendingPathComponent(name))
@@ -141,7 +121,6 @@ final class CustomSoundStore: ObservableObject {
         save()
     }
 
-    /// Tutte le coppie (file audio, etichetta), pronte per l'addestramento.
     func trainingPairs() -> [(url: URL, label: String)] {
         sounds.flatMap { sound in
             sound.sampleFileNames.compactMap { name in
@@ -184,7 +163,7 @@ final class CustomSoundStore: ObservableObject {
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
-    // MARK: - Persistenza
+    // MARK: - Persistence
 
     private func load() {
         guard let data = try? Data(contentsOf: catalogURL),

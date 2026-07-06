@@ -1,17 +1,3 @@
-//
-//  CustomSoundConfigStore.swift
-//  NotifEar Watch App
-//
-//  Conserva le preferenze dei suoni personalizzati inviate dall'iPhone: per ogni
-//  etichetta, SE deve avvisare (`enabled`) e con quale categoria. Così un suono
-//  come "rumore di fondo" può restare nel modello (utile come classe negativa) ma
-//  non generare allarmi.
-//
-//  La config arriva in due modi:
-//   - nel metadata del trasferimento del modello (config iniziale),
-//   - via applicationContext quando l'utente sposta un interruttore (aggiornamento
-//     immediato, senza riaddestrare).
-//
 
 import Foundation
 import Combine
@@ -35,14 +21,10 @@ final class CustomSoundConfigStore: ObservableObject {
 
     init() { load() }
 
-    /// True se quel suono deve avvisare. Default `true` per etichette non ancora note.
     func isEnabled(_ label: String) -> Bool { entries[label]?.enabled ?? true }
 
-    /// Categoria associata (default "attention").
     func category(for label: String) -> String { entries[label]?.category ?? "attention" }
 
-    /// Sostituisce TUTTA la config con quella ricevuta dall'iPhone (così i suoni
-    /// eliminati spariscono). `raw` è `[label: [enabled: Bool, category: String]]`.
     func update(from raw: [String: Any]) {
         var newEntries: [String: Entry] = [:]
         for (label, value) in raw {

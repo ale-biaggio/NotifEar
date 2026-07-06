@@ -1,18 +1,3 @@
-//
-//  PhoneSonarView.swift
-//  NotifEar (iPhone companion)
-//
-//  Schermata della modalità Sonar sull'iPhone. Adattata da [TrackingView] del Watch.
-//  Si apre già agganciata a un `SonarTarget` (arrivato dal Watch via notifica) e:
-//   - avvia il riconoscimento (per il gating) e la vibrazione continua;
-//   - mostra emoji/icona del suono che scala col volume, sfondo e aloni concentrici
-//     che pulsano in modo CONTINUO con `liveLevel` (non più cerchi discreti: la
-//     vibrazione qui è continua, e il feedback visivo la rispecchia);
-//   - invita a muoversi per capire da che parte cresce la vibrazione.
-//
-//  La direzione del suono NON è disponibile (iOS non espone i microfoni grezzi): come
-//  sul Watch, la sorgente si trova spostandosi verso dove la vibrazione si fa più forte.
-//
 
 import SwiftUI
 
@@ -39,11 +24,6 @@ struct PhoneSonarView: View {
                 Spacer()
 
                 ZStack {
-                    // Onde sonar: cerchi che si espandono di continuo dall'emoji e svaniscono.
-                    // L'espansione è perpetua (le onde "pulsano"); la loro INTENSITÀ (opacità)
-                    // segue il volume → pulsano insieme alla vibrazione, e spariscono nel
-                    // silenzio. L'emoji invece resta ferma (solo un lieve ingrandimento, come
-                    // sul Watch).
                     TimelineView(.animation) { timeline in
                         let t = timeline.date.timeIntervalSinceReferenceDate
                         ZStack {
@@ -62,7 +42,6 @@ struct PhoneSonarView: View {
                     icon
                         .scaleEffect(1.0 + 0.15 * level)
                         .animation(.easeOut(duration: 0.1), value: level)
-                        // Ri-tocco dell'emoji → ferma il sonar.
                         .contentShape(Rectangle())
                         .onTapGesture { PhoneConnectivityManager.shared.dismissSonar() }
                 }
@@ -86,7 +65,6 @@ struct PhoneSonarView: View {
                 }
             }
         }
-        // Assorbe tutti i tocchi: l'overlay copre la TabView sotto, niente tap che passano.
         .contentShape(Rectangle())
         .overlay(alignment: .topLeading) {
             Button { PhoneConnectivityManager.shared.dismissSonar() } label: {
@@ -109,13 +87,12 @@ struct PhoneSonarView: View {
         .onDisappear {
             controller.stop()
         }
-        // Auto-stop dopo silenzio: il controller mette isActive=false → chiudiamo l'overlay.
         .onChange(of: controller.isActive) { _, active in
             if !active { PhoneConnectivityManager.shared.dismissSonar() }
         }
     }
 
-    // MARK: - Pezzi
+    // MARK: - Sections
 
     @ViewBuilder
     private var icon: some View {
@@ -131,10 +108,7 @@ struct PhoneSonarView: View {
 
     private var backgroundPulse: some View {
         ZStack {
-            // Base SOLIDA: copre del tutto la TabView sotto (niente trasparenza).
             Color.black
-            // Sfumatura come sul Watch: colore della gravità in alto → nero in basso,
-            // più accesa quando il volume sale.
             LinearGradient(
                 colors: [tint.opacity(0.25 + 0.55 * Double(level)), Color.black],
                 startPoint: .top,

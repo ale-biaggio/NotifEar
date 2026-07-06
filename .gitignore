@@ -2,6 +2,8 @@
 .DS_Store
 *.swp
 *~
+*.tmp
+*.log
 
 # Xcode
 build/
@@ -12,14 +14,8 @@ xcuserdata/
 *.xcshareddata/
 xcuserstate
 *.xcscmblueprint
-
-# Agent / AI development files
-GEMINI.md
-.gemini/
-.agents/
-.agent/
-_agents/
-_agent/
+.build/
+.swiftpm/
 
 # Script di utilità (solo sviluppo locale)
 check_labels.swift

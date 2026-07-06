@@ -1,20 +1,9 @@
-//
-//  ModelPackaging.swift
-//  NotifEar Watch App
-//
-//  Copia gemella del file omonimo nel target iPhone. Ricostruisce la directory
-//  `.mlmodelc` a partire dal singolo file ricevuto via WatchConnectivity.
-//  Solo Foundation: nessuna dipendenza, funziona su watchOS.
-//
-//  (I due target non condividono i sorgenti; per questo il file è duplicato.)
-//
 
 import Foundation
 
 enum ModelPackaging {
     enum PackagingError: Error { case notADirectory, malformedArchive }
 
-    /// Comprime la directory in un singolo file.
     static func pack(directory: URL, to fileURL: URL) throws {
         let fm = FileManager.default
         var isDir: ObjCBool = false
@@ -39,7 +28,6 @@ enum ModelPackaging {
         try data.write(to: fileURL, options: .atomic)
     }
 
-    /// Ricostruisce la directory a partire dal file impacchettato.
     @discardableResult
     static func unpack(file: URL, to directory: URL) throws -> URL {
         let fm = FileManager.default

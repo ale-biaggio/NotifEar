@@ -1,16 +1,3 @@
-//
-//  SampleRecorder.swift
-//  NotifEar (iPhone companion)
-//
-//  Registra brevi campioni audio dal microfono dell'iPhone in PCM lineare a
-//  16 kHz mono (WAV) — la stessa fascia a cui lavora l'estrattore di feature
-//  di Apple (AudioFeaturePrint), così i campioni sono già nel formato giusto.
-//
-//  NOTA SUL DOMINIO MICROFONO: il riconoscimento finale avviene col microfono
-//  del Watch. Registrare i campioni dall'iPhone introduce un piccolo mismatch.
-//  In una fase successiva conviene poter registrare i campioni DAL Watch e
-//  trasferirli qui per l'addestramento.
-//
 
 import Foundation
 import AVFoundation

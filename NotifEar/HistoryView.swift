@@ -1,18 +1,3 @@
-//
-//  HistoryView.swift
-//  NotifEar (iPhone companion)
-//
-//  Scheda "Storico": i suoni rilevati dal Watch, raggruppati in "run" (una voce per
-//  sequenza consecutiva dello stesso suono). Le voci con più rilevamenti mostrano un
-//  contatore e si espandono al tocco.
-//
-//  Eliminazione (swipe verso sinistra):
-//   - sulla VOCE PRINCIPALE (gruppo) → "Elimina tutto" (rimuove tutti i rilevamenti);
-//   - su una SOTTOVOCE → "Elimina" (rimuove solo quel rilevamento).
-//
-//  NB: niente DisclosureGroup — l'espansione è gestita a mano per evitare che lo swipe
-//  del gruppo "tracimi" sulle sottovoci.
-//
 
 import SwiftUI
 
@@ -71,7 +56,7 @@ struct HistoryView: View {
         }
     }
 
-    // MARK: - Righe
+    // MARK: - Rows
 
     @ViewBuilder
     private var clearHistoryToolbarButton: some View {
@@ -92,8 +77,6 @@ struct HistoryView: View {
     @ViewBuilder
     private func headerRow(_ run: DetectionRun) -> some View {
         if run.count > 1 {
-            // Niente Button qui: con la riga avvolta in un Button SwiftUI allinea in
-            // alto l'etichetta dello swipe. Riga "normale" + onTapGesture per espandere.
             headerContent(run)
                 .onTapGesture {
                     toggle(run.id)
@@ -180,7 +163,6 @@ struct HistoryView: View {
     }
 
     private func color(for category: String) -> Color {
-        // Stessa scala di gravità (verde → rosso) usata in tutta l'app.
         SoundCategory.color(for: category)
     }
 
