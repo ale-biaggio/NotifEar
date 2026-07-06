@@ -246,3 +246,7 @@ git update-index --assume-unchanged NotifEar.xcodeproj/project.pbxproj
 |:---|:---|
 | `SOUND_LABELS.md` | Catalogo curato dei suoni riconoscibili con traduzione italiana |
 | `all_labels.txt` | Lista completa dei ~300 identifier del modello Apple |
+
+## Licenza
+
+Il codice sorgente è reso disponibile solo per la valutazione accademica del progetto. Non è concesso il riuso, la modifica o la redistribuzione senza autorizzazione scritta degli autori. Vedi `LICENSE`.
