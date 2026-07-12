@@ -70,16 +70,41 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
 
     private var customSoundRequest: SNClassifySoundRequest?
 
+    // MARK: - Sound Event Lifecycle
+
+    private enum DetectionSource {
+        case system
+        case custom
+    }
+
+    private struct ActiveSoundEpisode {
+        let id = UUID()
+        let info: SoundInfo
+        let source: DetectionSource
+        let recognitionKey: String
+        var lastSeenAt: Date
+        var acknowledged = false
+    }
+
+    private static let systemEntryThreshold: Float = 0.55
+    private static let systemExitThreshold: Float = 0.35
+    private static let customExitThreshold: Float = 0.60
+    private static let episodeSilenceTimeout: TimeInterval = 2.5
+    private static let alertHapticCycle: TimeInterval = 2.0
+
+    private var activeEpisode: ActiveSoundEpisode?
+    private var episodeExpiryWorkItem: DispatchWorkItem?
+    private var hapticCycleWorkItem: DispatchWorkItem?
+    private var pendingHapticWorkItems: [DispatchWorkItem] = []
+
     // MARK: - Custom Sound Filtering
 
     private static let customConfidenceThreshold: Float = 0.85
     private static let customMarginThreshold: Float = 0.30
     private static let customRequiredHits: Int = 3
-    private static let customCooldown: TimeInterval = 8
 
     private var customHitLabel: String?
     private var customHitCount: Int = 0
-    private var customLastAlertAt: Date?
 
     private var extendedSession: WKExtendedRuntimeSession?
     private let notificationCenter = UNUserNotificationCenter.current()
@@ -245,7 +270,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
         try? AVAudioSession.sharedInstance().setActive(false)
         self.isListening = false
         self.statusMessage = "Fermo"
-        self.detectedSound = nil
+        resetActiveEpisode()
         self.activePipeline = .idle
         stopExtendedSession()
     }
@@ -266,20 +291,13 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     }
 
     func dismissAlert() {
-        if detectedSound != nil {
-            detectedSound = nil
-            statusMessage = isListening ? "In ascolto..." : "Fermo"
-        }
+        guard detectedSound != nil else { return }
+        activeEpisode?.acknowledged = true
+        stopAlertHaptics()
+        detectedSound = nil
+        statusMessage = isListening ? "In ascolto..." : "Fermo"
     }
 
-    func handlePrimaryAction() {
-        if detectedSound != nil {
-            dismissAlert()
-        } else {
-            toggleListening()
-        }
-    }
-    
     // MARK: - Notifications
     
     private func requestNotificationPermission() {
@@ -337,7 +355,7 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
         self.isListening = false
         self.sessionExpired = true
         self.statusMessage = "Sessione scaduta"
-        self.detectedSound = nil
+        resetActiveEpisode()
         self.activePipeline = .idle
         self.extendedSession = nil
 
@@ -437,25 +455,68 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     
     // MARK: - Haptic Feedback
     
-    private func playHaptic(for category: SoundCategory) {
-        let device = WKInterfaceDevice.current()
-        
+    private func playHapticPattern(for category: SoundCategory, episodeID: UUID) {
         switch category {
         case .emergency:
-            device.play(.directionUp)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { device.play(.directionUp) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { device.play(.directionUp) }
-            
+            playHaptic(.notification, after: 0, episodeID: episodeID)
+            playHaptic(.notification, after: 0.8, episodeID: episodeID)
+
         case .danger:
-            device.play(.notification)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { device.play(.notification) }
-            
+            playHaptic(.directionUp, after: 0, episodeID: episodeID)
+            playHaptic(.directionUp, after: 0.3, episodeID: episodeID)
+            playHaptic(.directionUp, after: 0.6, episodeID: episodeID)
+
         case .home:
-            device.play(.click)
-            
+            playHaptic(.click, after: 0, episodeID: episodeID)
+            playHaptic(.click, after: 0.3, episodeID: episodeID)
+            playHaptic(.click, after: 0.6, episodeID: episodeID)
+
         case .attention:
-            device.play(.retry)
+            playHaptic(.click, after: 0, episodeID: episodeID)
         }
+    }
+
+    private func startAlertHaptics(for episode: ActiveSoundEpisode) {
+        stopAlertHaptics()
+        runHapticCycle(for: episode.id, category: episode.info.category)
+    }
+
+    private func runHapticCycle(for episodeID: UUID, category: SoundCategory) {
+        guard let episode = activeEpisode,
+              episode.id == episodeID,
+              !episode.acknowledged else { return }
+
+        pendingHapticWorkItems.forEach { $0.cancel() }
+        pendingHapticWorkItems.removeAll()
+        playHapticPattern(for: category, episodeID: episodeID)
+
+        let nextCycle = DispatchWorkItem { [weak self] in
+            self?.runHapticCycle(for: episodeID, category: category)
+        }
+        hapticCycleWorkItem = nextCycle
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.alertHapticCycle,
+            execute: nextCycle
+        )
+    }
+
+    private func playHaptic(_ type: WKHapticType, after delay: TimeInterval, episodeID: UUID) {
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  let episode = self.activeEpisode,
+                  episode.id == episodeID,
+                  !episode.acknowledged else { return }
+            WKInterfaceDevice.current().play(type)
+        }
+        pendingHapticWorkItems.append(workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func stopAlertHaptics() {
+        hapticCycleWorkItem?.cancel()
+        hapticCycleWorkItem = nil
+        pendingHapticWorkItems.forEach { $0.cancel() }
+        pendingHapticWorkItems.removeAll()
     }
     
     // MARK: - SNResultsObserving
@@ -483,31 +544,13 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
             DispatchQueue.main.async { self.currentTargetConfidence = targetConf }
         }
 
-        if let topMatch = classificationResult.classifications.first(where: { soundMap.keys.contains($0.identifier) && $0.confidence > 0.55 }),
-           let info = soundMap[topMatch.identifier] {
-
-            DispatchQueue.main.async {
-                if self.isCategoryMuted(info.category) { return }
-                if self.suppressedSystemIdentifiers.contains(topMatch.identifier) { return }
-
-                if self.detectedSound != info {
-                    self.detectedSound = info
-                    self.statusMessage = info.label
-                    self.lastDetectedSound = info
-                    self.lastDetectedAt = Date()
-                    self.playHaptic(for: info.category)
-                    self.sendLocalNotification(for: info)
-                    WatchModelReceiver.shared.reportDetection(label: info.label, category: info.category.rawValue)
-                    WatchHistoryStore.shared.add(label: info.label, category: info.category.rawValue)
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                        if self.isListening && self.detectedSound == info {
-                            self.statusMessage = "In ascolto..."
-                            self.detectedSound = nil
-                        }
-                    }
-                }
+        let confidences = Dictionary(
+            uniqueKeysWithValues: classificationResult.classifications.map {
+                ($0.identifier, Float($0.confidence))
             }
+        )
+        DispatchQueue.main.async {
+            self.handleSystemConfidences(confidences)
         }
     }
     
@@ -525,54 +568,147 @@ class SoundAnalyzerViewModel: NSObject, ObservableObject, SNResultsObserving {
     }
 
     private func handleCustomClassification(_ result: SNClassificationResult) {
-        let sorted = result.classifications
+        let confidences = Dictionary(
+            uniqueKeysWithValues: result.classifications.map {
+                ($0.identifier, Float($0.confidence))
+            }
+        )
+        let sorted = result.classifications.map {
+            (label: $0.identifier, confidence: Float($0.confidence))
+        }
+        DispatchQueue.main.async {
+            self.handleCustomConfidences(confidences, sorted: sorted)
+        }
+    }
+
+    private func handleSystemConfidences(_ confidences: [String: Float]) {
+        if let episode = activeEpisode {
+            guard episode.source == .system else { return }
+            let confidence = identifiers(matching: episode.info)
+                .compactMap { confidences[$0] }
+                .max() ?? 0
+            if confidence >= Self.systemExitThreshold {
+                refreshActiveEpisode()
+            }
+            return
+        }
+
+        guard let match = confidences
+            .filter({ soundMap[$0.key] != nil && $0.value >= Self.systemEntryThreshold })
+            .max(by: { $0.value < $1.value }),
+              let info = soundMap[match.key] else { return }
+        guard !isCategoryMuted(info.category) else { return }
+        guard !suppressedSystemIdentifiers.contains(match.key) else { return }
+
+        beginEpisode(info: info, source: .system, recognitionKey: info.label)
+    }
+
+    private func handleCustomConfidences(
+        _ confidences: [String: Float],
+        sorted: [(label: String, confidence: Float)]
+    ) {
+        if let episode = activeEpisode {
+            guard episode.source == .custom else { return }
+            if confidences[episode.recognitionKey, default: 0] >= Self.customExitThreshold {
+                refreshActiveEpisode()
+            }
+            return
+        }
+
         guard let top = sorted.first else { resetCustomHits(); return }
-
-        let label = top.identifier
-
-        if suppressedCustomLabels.contains(label) { return }
-
-        let conf = Float(top.confidence)
-        let second = Float(sorted.dropFirst().first?.confidence ?? 0)
-        let margin = conf - second
-
-        let qualifies = CustomSoundConfigStore.shared.isEnabled(label)
-            && conf >= Self.customConfidenceThreshold
+        let secondConfidence = sorted.dropFirst().first?.confidence ?? 0
+        let margin = top.confidence - secondConfidence
+        let qualifies = CustomSoundConfigStore.shared.isEnabled(top.label)
+            && top.confidence >= Self.customConfidenceThreshold
             && margin >= Self.customMarginThreshold
+            && !suppressedCustomLabels.contains(top.label)
 
         guard qualifies else { resetCustomHits(); return }
 
-        if label == customHitLabel {
+        if top.label == customHitLabel {
             customHitCount += 1
         } else {
-            customHitLabel = label
+            customHitLabel = top.label
             customHitCount = 1
         }
         guard customHitCount >= Self.customRequiredHits else { return }
 
-        if let last = customLastAlertAt, Date().timeIntervalSince(last) < Self.customCooldown { return }
-        customLastAlertAt = Date()
+        let category = CustomSoundConfigStore.shared.category(for: top.label)
+        let info = Self.customSoundInfo(label: top.label, category: category)
+        guard !isCategoryMuted(info.category) else { return }
+        beginEpisode(info: info, source: .custom, recognitionKey: top.label)
+        resetCustomHits()
+    }
 
-        let category = CustomSoundConfigStore.shared.category(for: label)
-        let info = Self.customSoundInfo(label: label, category: category)
-        DispatchQueue.main.async {
-            if self.isCategoryMuted(info.category) { return }
-            self.detectedSound = info
-            self.statusMessage = info.label
-            self.lastDetectedSound = info
-            self.lastDetectedAt = Date()
-            self.playHaptic(for: info.category)
-            self.sendLocalNotification(for: info)
-            WatchModelReceiver.shared.reportDetection(label: info.label, category: info.category.rawValue)
-            WatchHistoryStore.shared.add(label: info.label, category: info.category.rawValue)
+    private func beginEpisode(info: SoundInfo, source: DetectionSource, recognitionKey: String) {
+        guard activeEpisode == nil else { return }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                if self.isListening && self.detectedSound == info {
-                    self.statusMessage = "In ascolto..."
-                    self.detectedSound = nil
-                }
+        activeEpisode = ActiveSoundEpisode(
+            info: info,
+            source: source,
+            recognitionKey: recognitionKey,
+            lastSeenAt: Date()
+        )
+        detectedSound = info
+        statusMessage = info.label
+        lastDetectedSound = info
+        lastDetectedAt = Date()
+        if let episode = activeEpisode {
+            startAlertHaptics(for: episode)
+        }
+        sendLocalNotification(for: info)
+        WatchModelReceiver.shared.reportDetection(label: info.label, category: info.category.rawValue)
+        WatchHistoryStore.shared.add(label: info.label, category: info.category.rawValue)
+        scheduleEpisodeExpiry()
+    }
+
+    private func refreshActiveEpisode() {
+        guard activeEpisode != nil else { return }
+        activeEpisode?.lastSeenAt = Date()
+        scheduleEpisodeExpiry()
+    }
+
+    private func scheduleEpisodeExpiry() {
+        episodeExpiryWorkItem?.cancel()
+        guard let episode = activeEpisode else { return }
+
+        let episodeID = episode.id
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  let current = self.activeEpisode,
+                  current.id == episodeID else { return }
+
+            let silenceDuration = Date().timeIntervalSince(current.lastSeenAt)
+            if silenceDuration >= Self.episodeSilenceTimeout {
+                self.endActiveEpisode()
+            } else {
+                self.scheduleEpisodeExpiry()
             }
         }
+        episodeExpiryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.episodeSilenceTimeout,
+            execute: workItem
+        )
+    }
+
+    private func endActiveEpisode() {
+        stopAlertHaptics()
+        episodeExpiryWorkItem?.cancel()
+        episodeExpiryWorkItem = nil
+        activeEpisode = nil
+        detectedSound = nil
+        resetCustomHits()
+        statusMessage = isListening ? "In ascolto..." : "Fermo"
+    }
+
+    private func resetActiveEpisode() {
+        stopAlertHaptics()
+        episodeExpiryWorkItem?.cancel()
+        episodeExpiryWorkItem = nil
+        activeEpisode = nil
+        detectedSound = nil
+        resetCustomHits()
     }
 
     private func resetCustomHits() {

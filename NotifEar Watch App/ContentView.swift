@@ -60,7 +60,7 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.detectedSound?.label)
         .overlay {
-            Button(action: { viewModel.handlePrimaryAction() }) {
+            Button(action: handlePrimaryAction) {
                 Color.clear
                     .frame(width: 0, height: 0)
             }
@@ -202,6 +202,15 @@ struct ContentView: View {
                     .padding(.top, 2)
             }
         }
+        .overlay {
+            Button(action: dismissDetectedAlert) {
+                Color.clear
+                    .frame(width: 0, height: 0)
+            }
+            .buttonStyle(.plain)
+            .allowsHitTesting(false)
+            .handGestureShortcut(.primaryAction)
+        }
     }
 
     @ViewBuilder
@@ -247,6 +256,17 @@ struct ContentView: View {
         viewModel.dismissAlert()
         if case .detected = presentedSheet {
             presentedSheet = nil
+        }
+    }
+
+    private func handlePrimaryAction() {
+        switch presentedSheet {
+        case .detected:
+            dismissDetectedAlert()
+        case .tracking:
+            presentedSheet = nil
+        case nil:
+            viewModel.toggleListening()
         }
     }
 

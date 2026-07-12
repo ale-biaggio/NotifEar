@@ -57,6 +57,15 @@ struct TrackingView: View {
             }
             .padding(.vertical, 6)
         }
+        .overlay {
+            Button(action: { dismiss() }) {
+                Color.clear
+                    .frame(width: 0, height: 0)
+            }
+            .buttonStyle(.plain)
+            .allowsHitTesting(false)
+            .handGestureShortcut(.primaryAction)
+        }
         .persistentSystemOverlays(.hidden)
         .onAppear {
             backgroundDismissEnabled = false
