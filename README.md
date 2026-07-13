@@ -50,7 +50,7 @@ I due classificatori ricevono lo stesso flusso audio e funzionano interamente su
 
 ### Classificatore Apple
 
-NotifEar usa `SNClassifySoundRequest` Version 1, il modello di SoundAnalysis pre-addestrato da Apple su circa 300 classi. Il modello produce risultati per molte categorie, ma l'app genera alert solo per un sottoinsieme esplicitamente mappato e documentato in `SOUND_LABELS.md`.
+NotifEar usa `SNClassifySoundRequest` Version 1, il modello di SoundAnalysis pre-addestrato da Apple su circa 300 classi. Il modello produce risultati per molte categorie, ma l'app genera alert solo per il sottoinsieme esplicitamente mappato nella proprietà `soundMap` di `SoundAnalyzerViewModel.swift`.
 
 ### Classificatore custom
 
@@ -316,12 +316,6 @@ Il prototipo precedente disponeva già di una vibrazione, ma era indifferenziata
 - iPhone con iOS 18.0 o successivo;
 - Xcode 26 o successivo;
 - iPhone e Watch abbinati per training, sincronizzazione dello storico e Sonar iPhone.
-
-## File di riferimento
-
-| File | Descrizione |
-|:---|:---|
-| `SOUND_LABELS.md` | identifier Apple intercettati esplicitamente e relativa mappatura |
 
 ## Licenza
 
